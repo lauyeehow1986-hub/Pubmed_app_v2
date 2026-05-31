@@ -11,6 +11,56 @@ publications and enriches each record with:
 It runs server-side (R), so it makes live calls to the NCBI E-utilities and DOAJ APIs and
 queries the SJR data with DuckDB.
 
+## Architecture
+
+```mermaid
+flowchart TB
+    subgraph refresh["SJR data refresh (monthly, on your phone)"]
+        direction TB
+        sched["Android job scheduler + Termux:Boot<br/>(daily job, acts only on the 1st)"]
+        sh["termux_refresh_sjr.sh"]
+        py["refresh_sjr.py<br/>download 1999-current,<br/>dedup phantom years,<br/>write parquet (or csv.gz)"]
+        scimago[("scimagojr.com<br/>journalrank.php")]
+        sched --> sh --> py
+        py -->|"browser User-Agent<br/>(mobile IP, not CI)"| scimago
+        scimago -->|"semicolon CSV per year"| py
+    end
+
+    py -->|"git commit + push<br/>data/sjr_all.parquet"| repo
+
+    subgraph gh["GitHub repo (lauyeehow1986-hub/Pubmed_app_v2)"]
+        direction TB
+        repo["data/sjr_all.parquet<br/>app.R · manifest.json · scripts/"]
+    end
+
+    repo -->|"auto-redeploy on push<br/>(git archive: whole repo)"| connect
+
+    subgraph cloud["Posit Connect Cloud (server-side R)"]
+        direction TB
+        connect["Shiny app (app.R)<br/>installs pkgs from manifest.json"]
+        duck["DuckDB reads local<br/>data/sjr_all.parquet by ISSN + year"]
+        connect --> duck
+    end
+
+    user(["User browser"]) -->|"search query"| connect
+    connect -->|"E-utilities: esearch + efetch"| pubmed[("NCBI PubMed")]
+    connect -->|"Open Access lookup"| doaj[("DOAJ API v4")]
+    pubmed --> connect
+    doaj --> connect
+    duck --> result["Author-level + article-level tables<br/>(SJR rank, quartile, JIF, OA, CSV export)"]
+    result --> user
+
+    classDef ext fill:#fde,stroke:#c69
+    classDef store fill:#def,stroke:#69c
+    class scimago,pubmed,doaj ext
+    class repo,duck store
+```
+
+The diagram has two halves: the **monthly data refresh** (top — runs on your phone because
+scimagojr.com blocks datacenter/CI IPs) which commits a fresh `data/sjr_all.parquet` to GitHub, and
+the **app runtime** (bottom — Posit Connect Cloud) which auto-redeploys on every push and, per user
+search, calls PubMed + DOAJ live and joins the bundled SJR parquet with DuckDB.
+
 ## What changed vs. the original app
 
 The original app pulled SJR data at runtime from a third-party, **static** repository and only
