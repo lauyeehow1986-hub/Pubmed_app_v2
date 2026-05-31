@@ -16,38 +16,99 @@ queries the SJR data with DuckDB.
 The original app pulled SJR data at runtime from a third-party, **static** repository and only
 ever loaded a **single year** (current year − 1). This project instead **owns its SJR data**:
 
-- `scripts/build_sjr_parquet.R` downloads **every year, 1999 → current**, directly from
-  [scimagojr.com](https://www.scimagojr.com/journalrank.php) and writes one combined file,
+- The SJR data is downloaded for **every year, 1999 → current**, directly from
+  [scimagojr.com](https://www.scimagojr.com/journalrank.php) and combined into one file,
   `data/sjr_all.parquet` (with a `year` column).
-- A GitHub Actions workflow (`.github/workflows/update-sjr.yml`) rebuilds and commits that
-  parquet **monthly** (and on demand). SCImago itself only updates roughly once a year, so
-  monthly is comfortably fresh.
 - `app.R` reads the local `data/sjr_all.parquet` and matches each publication to its SJR row by
   **ISSN and publication year across all years** (a strict improvement over the old single-year
   lookup). Every column, tab, and feature of the original app is preserved.
+
+> **Why the data is refreshed from a phone (Termux), not GitHub Actions.**
+> scimagojr.com returns **HTTP 403 to datacenter/CI IPs**, so a GitHub Actions runner cannot
+> download it. A normal mobile/Wi-Fi IP is **not** blocked, so the refresh runs on your phone via
+> [Termux](https://termux.dev) and pushes the rebuilt parquet to GitHub. Posit Connect Cloud then
+> redeploys from the new commit. SCImago only updates ~once a year, so this is needed rarely.
 
 ## Repository layout
 
 ```
 app.R                              # the Shiny app (server-side)
 manifest.json                      # dependency manifest for Posit Connect Cloud
-data/sjr_all.parquet               # combined SJR data, 1999 -> current (built by CI)
-scripts/build_sjr_parquet.R        # downloader / parquet builder
-.github/workflows/update-sjr.yml   # monthly refresh of the parquet
+data/sjr_all.parquet               # combined SJR data, 1999 -> current
+scripts/termux_refresh_sjr.sh      # phone-side: download all years + commit parquet
+scripts/build_sjr_from_csvs.R      # base-R + nanoparquet combiner (Termux-friendly)
+scripts/build_sjr_parquet.R        # full-tidyverse builder (for a desktop/laptop with R)
 ```
 
-## First-time setup
+## Refreshing the SJR data on your phone (Termux)
 
-`manifest.json` is committed. The only thing to seed is the SJR data:
+You only need to do this once to seed the data, then ~yearly when SCImago updates.
 
-- **Build the SJR data:** Actions → **Update SJR parquet** → **Run workflow**. This downloads
-  ~27 years from scimagojr.com (a few minutes) and commits `data/sjr_all.parquet`.
-  (If you have R locally you can instead run `Rscript scripts/build_sjr_parquet.R` and commit.)
+### One-time Termux setup
 
-> **Heads-up — GitHub Actions schedules run from the _default_ branch.** The monthly cron (and
-> the visible "Run workflow" button) only activate once the workflow file is on the repository's
-> default branch. Merge this branch into the default branch (or set it as default) to enable the
-> schedule. (Deploying on Connect Cloud, below, can target any branch.)
+```bash
+pkg update && pkg upgrade -y
+pkg install -y git r-base curl openssh
+# nanoparquet is the only R package needed for the phone-side build:
+Rscript -e 'install.packages("nanoparquet", repos="https://cloud.r-project.org")'
+```
+
+Clone your repo and let git remember your credentials (use a GitHub
+**Personal Access Token** as the password when prompted):
+
+```bash
+cd ~
+git clone https://github.com/lauyeehow1986-hub/Pubmed_app_v2.git
+cd Pubmed_app_v2
+git config credential.helper store      # caches the token after first push
+git config user.name  "Your Name"
+git config user.email "lauyeehow1986@gmail.com"
+```
+
+### Run the refresh
+
+```bash
+# make sure you are on mobile data or a normal Wi-Fi IP (NOT a VPN/datacenter)
+bash scripts/termux_refresh_sjr.sh
+```
+
+It downloads every year 1999→current from scimagojr.com, rebuilds
+`data/sjr_all.parquet`, and commits + pushes it only if it changed.
+
+### Schedule it (optional, monthly bot)
+
+Install the Termux:Tasks/Boot add-ons and the scheduler, then:
+
+```bash
+pkg install -y termux-api cronie
+# start cron:
+crond
+# edit schedule:
+crontab -e
+```
+
+Add a line to run on the 1st of each month at 09:00 (adjust the path if your
+clone is elsewhere):
+
+```
+0 9 1 * * bash ~/Pubmed_app_v2/scripts/termux_refresh_sjr.sh >> ~/sjr_refresh.log 2>&1
+```
+
+> Keep the phone awake/charging for scheduled runs, or just run the script by
+> hand each spring when the new SCImago year is published — it only changes
+> once a year.
+
+## Building the data on a desktop/laptop instead
+
+If you have R on a computer (and a non-blocked IP), you can skip Termux:
+
+```r
+# install.packages(c("httr","readr","dplyr","janitor","nanoparquet"))
+# from the repo root:
+# Rscript scripts/build_sjr_parquet.R
+```
+
+Then `git add data/sjr_all.parquet && git commit && git push`.
 
 ## Deploy on Posit Connect Cloud
 
@@ -59,14 +120,15 @@ scripts/build_sjr_parquet.R        # downloader / parquet builder
 3. Choose the branch and set the primary file to **`app.R`**.
 4. Deploy. Connect Cloud installs the packages from `manifest.json`, ships the **entire**
    repository (via `git archive` — including `data/sjr_all.parquet`, which the app reads locally),
-   and **redeploys automatically when you push** to the linked branch.
+   and **redeploys automatically when you push** to the linked branch — including the parquet
+   pushes from your phone.
 
 ### About `manifest.json`
 
 Connect Cloud reads the **R version and package set** from `manifest.json`; it ignores the
 manifest's file list/checksums for git deploys (it uses `git archive`). So:
 
-- Refreshing `data/sjr_all.parquet` monthly does **not** require touching the manifest.
+- Refreshing `data/sjr_all.parquet` does **not** require touching the manifest.
 - Only regenerate it when you change the app's **R package dependencies** (or R version):
 
   ```r
@@ -75,7 +137,7 @@ manifest's file list/checksums for git deploys (it uses `git archive`). So:
 
   then commit the updated `manifest.json`.
 
-## Running locally
+## Running the app locally
 
 ```r
 # install.packages(c("shiny","shinydashboard","xml2","httr","jsonlite","dplyr",
@@ -83,7 +145,7 @@ manifest's file list/checksums for git deploys (it uses `git archive`). So:
 shiny::runApp(".")
 ```
 
-Make sure `data/sjr_all.parquet` exists first (run `scripts/build_sjr_parquet.R`).
+Make sure `data/sjr_all.parquet` exists first.
 
 ## Data sources
 
