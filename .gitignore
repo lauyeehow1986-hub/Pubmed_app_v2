@@ -12,5 +12,9 @@ rsconnect/
 .DS_Store
 Thumbs.db
 
-# NOTE: data/sjr_all.parquet is intentionally NOT ignored.
+# NOTE: data/sjr_all.csv.gz is intentionally NOT ignored.
 # It is committed so the deployed app (and Posit Connect Cloud) has SJR data.
+
+# Python
+__pycache__/
+*.pyc

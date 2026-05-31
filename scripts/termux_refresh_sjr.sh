@@ -1,91 +1,77 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # =============================================================================
-# Termux SJR refresh — runs on your phone, commits data/sjr_all.parquet
+# Termux SJR refresh -- runs on your phone, commits data/sjr_all.csv.gz
 # =============================================================================
 #
 # Why this exists: scimagojr.com blocks datacenter/CI IPs (HTTP 403), but your
 # phone's mobile/Wi-Fi IP is NOT blocked. So we download on-device here and push
-# the resulting parquet to GitHub; Posit Connect Cloud then redeploys from it.
+# the result to GitHub; Posit Connect Cloud then redeploys from the new commit.
 #
 # This script:
-#   1. cd into the repo
-#   2. git pull (fast-forward)
-#   3. download every year 1999..current from scimagojr.com with the system curl
-#      (browser User-Agent) into a temp folder
-#   4. run scripts/build_sjr_from_csvs.R to combine them into data/sjr_all.parquet
-#   5. commit & push only if the parquet changed
+#   1. cd into the repo and git pull (fast-forward)
+#   2. run scripts/refresh_sjr.py (Python standard library only -- no pip,
+#      no R) which downloads every year 1999..current and writes
+#      data/sjr_all.csv.gz
+#   3. commit & push only if the data file changed
 #
-# Configure REPO_DIR below, then either run it by hand or schedule it with
-# termux-job-scheduler / cron (see README).
+# One-time Termux setup:
+#   pkg update && pkg upgrade -y
+#   pkg install -y python git
+#   git clone https://github.com/lauyeehow1986-hub/Pubmed_app_v2.git
+#   cd Pubmed_app_v2
+#   git config credential.helper store   # caches your GitHub token on first push
+#
+# Then run:  bash scripts/termux_refresh_sjr.sh
+# (Make sure you are on mobile data / normal Wi-Fi, NOT a VPN.)
 # =============================================================================
 
 set -u
 
 # ---- CONFIG: point this at your local clone -----------------------------------
-REPO_DIR="$HOME/Pubmed_app_v2"
+REPO_DIR="${REPO_DIR:-$HOME/Pubmed_app_v2}"
 # -------------------------------------------------------------------------------
-
-UA='Mozilla/5.0 (Linux; Android 14; Pixel) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36'
-FIRST_YEAR=1999
-CURRENT_YEAR="$(date +%Y)"
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
 
 cd "$REPO_DIR" || { log "ERROR: REPO_DIR not found: $REPO_DIR"; exit 1; }
 
+# Pick a python interpreter.
+PY="$(command -v python3 || command -v python || true)"
+if [ -z "$PY" ]; then
+  log "ERROR: python not found. Run: pkg install python"
+  exit 1
+fi
+
 log "Repo: $REPO_DIR"
 log "Pulling latest..."
 git pull --ff-only 2>&1 | sed 's/^/    /'
 
-RAW_DIR="$(mktemp -d)"
-trap 'rm -rf "$RAW_DIR"' EXIT
-
-ok_years=0
-for year in $(seq "$FIRST_YEAR" "$CURRENT_YEAR"); do
-  url="https://www.scimagojr.com/journalrank.php?year=${year}&out=xls"
-  out="$RAW_DIR/sjr_${year}.csv"
-  printf '    %s ... ' "$year"
-
-  http=$(curl -sS -L \
-    -A "$UA" \
-    -H 'Accept: text/csv,application/vnd.ms-excel,*/*' \
-    -H 'Accept-Language: en-US,en;q=0.9' \
-    -H 'Referer: https://www.scimagojr.com/journalrank.php' \
-    --max-time 180 --retry 3 --retry-delay 2 \
-    -o "$out" -w '%{http_code}' \
-    "$url" 2>/dev/null)
-
-  sz=$(stat -c%s "$out" 2>/dev/null || echo 0)
-  if [ "$http" = "200" ] && [ "$sz" -gt 1000 ]; then
-    echo "OK ($sz bytes)"
-    ok_years=$((ok_years + 1))
-  else
-    echo "FAILED (HTTP $http, $sz bytes)"
-    rm -f "$out"
-  fi
-  sleep 1
-done
-
-if [ "$ok_years" -eq 0 ]; then
-  log "ERROR: no years downloaded (are you on mobile data / off a blocked network?). Aborting."
+log "Downloading SJR data (1999 -> current) via refresh_sjr.py ..."
+if ! "$PY" scripts/refresh_sjr.py --out data/sjr_all.csv.gz; then
+  log "ERROR: refresh_sjr.py failed (no years downloaded?). Are you on a"
+  log "       non-datacenter IP -- mobile data or normal Wi-Fi, no VPN?"
   exit 1
 fi
-log "Downloaded $ok_years year files. Building parquet..."
 
-# Build the combined parquet from the CSVs we just fetched.
-Rscript scripts/build_sjr_from_csvs.R "$RAW_DIR" || {
-  log "ERROR: parquet build failed."
-  exit 1
-}
-
-# Commit & push only if the parquet actually changed.
-if git diff --quiet -- data/sjr_all.parquet; then
-  log "No change in data/sjr_all.parquet — nothing to commit."
+if git diff --quiet -- data/sjr_all.csv.gz; then
+  log "No change in data/sjr_all.csv.gz -- nothing to commit."
   exit 0
 fi
 
-git add data/sjr_all.parquet
-git commit -m "chore(data): refresh SJR parquet from scimagojr.com (Termux)" 2>&1 | sed 's/^/    /'
-log "Pushing..."
-git push 2>&1 | sed 's/^/    /'
-log "Done."
+log "Committing and pushing updated data/sjr_all.csv.gz ..."
+git add data/sjr_all.csv.gz
+git commit -m "data: refresh SJR from scimagojr.com ($(date +%Y-%m-%d))" \
+  2>&1 | sed 's/^/    /'
+
+# Retry push a few times in case the phone connection blips.
+for attempt in 1 2 3 4; do
+  if git push 2>&1 | sed 's/^/    /'; then
+    log "Pushed. Posit Connect Cloud will redeploy from the new commit."
+    exit 0
+  fi
+  log "push failed (attempt $attempt) -- retrying in $((attempt*3))s"
+  sleep $((attempt*3))
+done
+
+log "ERROR: could not push after retries. Re-run later or push by hand."
+exit 1

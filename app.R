@@ -803,63 +803,72 @@ fetch_doaj_oa_start <- function(journal_title) {
 }
 
 # ============================================================================
-# SJR Journal Data Function - Downloads parquet and returns local path
+# SJR Journal Data - locates the locally bundled combined SJR file
 # ============================================================================
+#
+# The SJR data is OWNED by this repository. It is downloaded for every year
+# (1999 -> current) directly from scimagojr.com by scripts/refresh_sjr.py
+# (run on a phone via Termux, because scimagojr.com blocks datacenter/CI IPs)
+# and stored as a single gzipped CSV at data/sjr_all.csv.gz with a `year`
+# column. DuckDB reads CSV.gz natively, so the rest of the app is unchanged.
 
-download_sjr_parquet <- function() {
+# Path to the bundled combined SJR data file (relative to the app directory).
+# A gzipped CSV is used so it can be produced with the Python standard library
+# on a phone. DuckDB also reads .parquet here, so either extension works.
+SJR_DATA_PATH <- "data/sjr_all.csv.gz"
+
+# Build the DuckDB table source expression for the SJR file. For CSV/CSV.gz we
+# use read_csv_auto and force `issn` to VARCHAR so leading-zero ISSNs are not
+# mangled into integers; for parquet we reference the path directly.
+sjr_duckdb_source <- function(path) {
+  p <- gsub("\\\\", "/", path)
+  if (grepl("\\.csv(\\.gz)?$", p, ignore.case = TRUE)) {
+    paste0(
+      "read_csv_auto('", p, "', header=true, types={'issn': 'VARCHAR'})"
+    )
+  } else {
+    paste0("'", p, "'")
+  }
+}
+
+get_sjr_data <- function() {
   tryCatch(
     {
-      # Try current year - 1 first, then fall back to earlier years if not found
-      current_year <- as.integer(format(Sys.Date(), "%Y"))
-      
-      for (year_offset in 1:3) {
-        sjr_year <- current_year - year_offset
-        
-        # Construct filename and URL
-        filename <- paste0("sjr_journals-", sjr_year, ".parquet")
-        url <- paste0(
-          "https://github.com/ikashnitsky/sjrdata/raw/master/data-raw/sjr-journal/",
-          filename
+      if (!file.exists(SJR_DATA_PATH)) {
+        message("SJR data file not found at: ", SJR_DATA_PATH)
+        message(
+          "Run scripts/refresh_sjr.py (Termux) to download and commit it."
         )
-        
-        message("Trying SJR parquet URL: ", url)
-        
-        # Create temp file for download
-        temp_file <- tempfile(fileext = ".parquet")
-        
-        # Download the parquet file
-        download_result <- tryCatch(
-          {
-            download.file(url, temp_file, mode = "wb", quiet = TRUE)
-            TRUE
-          },
-          error = function(e) {
-            message("Error downloading SJR data for year ", sjr_year, ": ", e$message)
-            FALSE
-          }
-        )
-        
-        if (download_result && file.exists(temp_file) && file.size(temp_file) > 1000) {
-          message("SJR parquet downloaded successfully!")
-          message("Year: ", sjr_year)
-          message("File path: ", temp_file)
-          message("File size: ", file.size(temp_file), " bytes")
-          
-          return(list(
-            path = temp_file,
-            year = sjr_year
-          ))
-        } else {
-          message("Download failed or file too small for year ", sjr_year, ", trying previous year...")
-          if (file.exists(temp_file)) unlink(temp_file)
-        }
+        return(NULL)
       }
-      
-      message("Could not download SJR parquet for any recent year")
-      return(NULL)
+
+      src <- sjr_duckdb_source(SJR_DATA_PATH)
+
+      # Determine the max year available (for status messaging). Best-effort.
+      max_year <- tryCatch(
+        {
+          con <- dbConnect(duckdb::duckdb())
+          on.exit(dbDisconnect(con, shutdown = TRUE), add = TRUE)
+          res <- dbGetQuery(
+            con,
+            paste0("SELECT MAX(year) AS max_year FROM ", src)
+          )
+          as.integer(res$max_year[1])
+        },
+        error = function(e) NA_integer_
+      )
+
+      message("Using local SJR data file: ", SJR_DATA_PATH)
+      message("File size: ", file.size(SJR_DATA_PATH), " bytes")
+      message("Max year in SJR data: ", max_year)
+
+      return(list(
+        path = SJR_DATA_PATH,
+        year = max_year
+      ))
     },
     error = function(e) {
-      message("Error in download_sjr_parquet: ", e$message)
+      message("Error locating SJR data file: ", e$message)
       return(NULL)
     }
   )
@@ -901,23 +910,26 @@ query_sjr_with_duckdb <- function(sjr_parquet_path, relevant_issns) {
       # Combine conditions with OR
       where_clause <- paste(like_conditions, collapse = " OR ")
       
-      # Build complete query - note column is 'cites_doc_2years' in parquet (not 'citations')
+      # Build the DuckDB source expression (handles .csv.gz or .parquet)
+      sjr_source <- sjr_duckdb_source(sjr_parquet_path)
+
+      # Build complete query - note column is 'cites_doc_2years' (not 'citations')
       query <- paste0(
-        "SELECT year, rank, sjr, sjr_best_quartile, h_index, cites_doc_2years, title, issn FROM '",
-        sjr_parquet_path,
-        "' WHERE ",
+        "SELECT year, rank, sjr, sjr_best_quartile, h_index, cites_doc_2years, title, issn FROM ",
+        sjr_source,
+        " WHERE ",
         where_clause
       )
-      
+
       message("DuckDB query length: ", nchar(query))
       message("Sample WHERE clause: ", substr(where_clause, 1, 300), "...")
-      
+
       # Connect to DuckDB and execute query
       con <- dbConnect(duckdb::duckdb())
       on.exit(dbDisconnect(con, shutdown = TRUE), add = TRUE)
-      
-      # First test: check if we can read the parquet at all
-      test_query <- paste0("SELECT COUNT(*) as cnt FROM '", sjr_parquet_path, "'")
+
+      # First test: check if we can read the SJR file at all
+      test_query <- paste0("SELECT COUNT(*) as cnt FROM ", sjr_source)
       test_result <- dbGetQuery(con, test_query)
       message("Total rows in parquet: ", test_result$cnt)
       
@@ -1227,7 +1239,7 @@ ui <- dashboardPage(
             collapsible = TRUE,
             collapsed = FALSE,
             
-            p("Test if DuckDB can load and query the local bundled SJR parquet file (data/sjr_all.parquet)."),
+            p("Test if DuckDB can load and query the local bundled SJR data file (data/sjr_all.csv.gz)."),
             actionButton("test_duckdb", "Test DuckDB Connection", class = "btn-primary"),
             br(),
             br(),
@@ -1339,7 +1351,7 @@ ui <- dashboardPage(
               tags$li("PubMed via NCBI E-utilities API (direct)"),
               tags$li("Directory of Open Access Journals (DOAJ) API v4"),
               tags$li(
-                "SCImago Journal & Country Rank (SJR) data downloaded directly from scimagojr.com for all years (1999 to current), stored as this project's own combined parquet (data/sjr_all.parquet) and refreshed monthly via GitHub Actions"
+                "SCImago Journal & Country Rank (SJR) data downloaded directly from scimagojr.com for all years (1999 to current), stored as this project's own combined data file (data/sjr_all.csv.gz) and refreshed from a phone via Termux"
               )
             ),
 
@@ -1565,10 +1577,10 @@ server <- function(input, output, session) {
           oa_df <- bind_rows(oa_results)
           rv$oa_df <- oa_df
 
-          # Step 5: Locate the bundled combined SJR parquet file
+          # Step 5: Locate the bundled combined SJR data file
           incProgress(0.05, detail = "Loading SJR journal ranking data...")
 
-          sjr_parquet_info <- get_sjr_parquet()
+          sjr_parquet_info <- get_sjr_data()
           rv$sjr_parquet_path <- if(!is.null(sjr_parquet_info)) sjr_parquet_info$path else NULL
 
           # Step 6: Create combined table with Open Access field
@@ -1612,8 +1624,8 @@ server <- function(input, output, session) {
             # Query SJR data using DuckDB with LIKE statements from local parquet file
             sjr_df <- query_sjr_with_duckdb(sjr_parquet_info$path, relevant_issns)
             rv$sjr_df <- sjr_df
-            # NOTE: do NOT unlink the parquet here -- it is the repo-bundled
-            # data/sjr_all.parquet, not a throwaway temp file.
+            # NOTE: do NOT unlink the data file here -- it is the repo-bundled
+            # data/sjr_all.csv.gz, not a throwaway temp file.
 
             if (!is.null(sjr_df) && nrow(sjr_df) > 0 && "issn" %in% names(sjr_df)) {
               incProgress(
@@ -2055,9 +2067,9 @@ server <- function(input, output, session) {
         "unknown"
       }
       paste0(
-        "✓ SJR data loaded successfully (source: SCImago, your own parquet)!\n",
+        "✓ SJR data loaded successfully (source: SCImago, your own data file)!\n",
         "  - Source file: ",
-        SJR_PARQUET_PATH,
+        SJR_DATA_PATH,
         "\n",
         "  - Years covered (matched rows): ",
         year_range,
@@ -2096,16 +2108,16 @@ server <- function(input, output, session) {
     rv$duckdb_test_result <- tryCatch({
       results <- list()
       
-      # Step 1: Locate the bundled combined SJR parquet
-      temp_file <- SJR_PARQUET_PATH
+      # Step 1: Locate the bundled combined SJR data file
+      temp_file <- SJR_DATA_PATH
       results$path <- temp_file
-      results$step1 <- paste0("✓ Looking for local SJR parquet: ", temp_file)
+      results$step1 <- paste0("✓ Looking for local SJR data file: ", temp_file)
 
       # Step 2: Check the file exists and looks valid
       if (!file.exists(temp_file)) {
         results$step2 <- paste0(
           "✗ File not found: ", temp_file,
-          " - run scripts/build_sjr_parquet.R or the update-sjr GitHub Action."
+          " - run scripts/refresh_sjr.py (Termux) to download and commit it."
         )
         return(paste(unlist(results), collapse = "\n"))
       }
@@ -2114,7 +2126,7 @@ server <- function(input, output, session) {
       results$step2 <- paste0("✓ File found: ", format(file_size, big.mark = ","), " bytes")
 
       if (file_size < 1000) {
-        results$step2b <- "✗ File too small - likely incomplete, not a valid parquet file"
+        results$step2b <- "✗ File too small - likely incomplete or empty"
         return(paste(unlist(results), collapse = "\n"))
       }
 
@@ -2132,9 +2144,10 @@ server <- function(input, output, session) {
       }
       results$step3 <- "✓ DuckDB connection established"
       
-      # Step 4: Count rows in parquet
+      # Step 4: Count rows in the SJR file
       temp_file_clean <- gsub("\\\\", "/", temp_file)
-      count_query <- paste0("SELECT COUNT(*) as cnt FROM '", temp_file_clean, "'")
+      sjr_src <- sjr_duckdb_source(temp_file_clean)
+      count_query <- paste0("SELECT COUNT(*) as cnt FROM ", sjr_src)
       
       row_count <- tryCatch({
         dbGetQuery(con, count_query)$cnt
@@ -2151,7 +2164,7 @@ server <- function(input, output, session) {
       results$step4 <- paste0("✓ Total rows in parquet: ", format(row_count, big.mark = ","))
       
       # Step 5: Get column names
-      schema_query <- paste0("DESCRIBE SELECT * FROM '", temp_file_clean, "'")
+      schema_query <- paste0("DESCRIBE SELECT * FROM ", sjr_src)
       schema <- tryCatch({
         dbGetQuery(con, schema_query)
       }, error = function(e) {
@@ -2166,7 +2179,7 @@ server <- function(input, output, session) {
       }
       
       # Step 6: Sample ISSN values
-      issn_query <- paste0("SELECT DISTINCT issn FROM '", temp_file_clean, "' WHERE issn IS NOT NULL LIMIT 5")
+      issn_query <- paste0("SELECT DISTINCT issn FROM ", sjr_src, " WHERE issn IS NOT NULL LIMIT 5")
       issn_sample <- tryCatch({
         dbGetQuery(con, issn_query)
       }, error = function(e) {
@@ -2181,7 +2194,7 @@ server <- function(input, output, session) {
       }
       
       # Step 7: Test LIKE query with a known ISSN (Circulation: 00097322 - no hyphens)
-      like_query <- paste0("SELECT COUNT(*) as cnt FROM '", temp_file_clean, "' WHERE issn LIKE '%00097322%'")
+      like_query <- paste0("SELECT COUNT(*) as cnt FROM ", sjr_src, " WHERE issn LIKE '%00097322%'")
       like_result <- tryCatch({
         dbGetQuery(con, like_query)$cnt
       }, error = function(e) {
