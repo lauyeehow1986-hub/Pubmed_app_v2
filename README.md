@@ -21,7 +21,9 @@ ever loaded a **single year** (current year − 1). This project instead **owns 
   `data/sjr_all.parquet` (with a `year` column).
 - A GitHub Actions workflow (`.github/workflows/update-sjr.yml`) rebuilds and commits that
   parquet **monthly** (and on demand). SCImago itself only updates roughly once a year, so
-  monthly is comfortably fresh.
+  monthly is comfortably fresh. The same job also **regenerates `manifest.json`** so its
+  per-file checksums stay in sync with the new data (Connect Cloud validates them, so a stale
+  manifest could otherwise fail a redeploy).
 - `app.R` reads the local `data/sjr_all.parquet` and matches each publication to its SJR row by
   **ISSN and publication year across all years** (a strict improvement over the old single-year
   lookup). Every column, tab, and feature of the original app is preserved.
@@ -42,15 +44,18 @@ manifest.json                      # dependency manifest for Posit Connect Cloud
 Because the parquet and the Connect Cloud `manifest.json` are produced by R (not committed by
 hand), seed them once via GitHub Actions:
 
-1. **Build the SJR data:** Actions → **Update SJR parquet** → **Run workflow**. This downloads
-   ~27 years from scimagojr.com (a few minutes) and commits `data/sjr_all.parquet`.
-2. **Generate the manifest:** Actions → **Generate Connect manifest** → **Run workflow**. This
-   installs the app's packages, runs `rsconnect::writeManifest()`, and commits `manifest.json`.
+1. **Build the SJR data + manifest:** Actions → **Update SJR parquet** → **Run workflow**. This
+   downloads ~27 years from scimagojr.com (a few minutes), commits `data/sjr_all.parquet`, and
+   also generates/commits `manifest.json`. (The standalone **Generate Connect manifest** workflow
+   runs automatically whenever you change `app.R`, to refresh the manifest between data refreshes.)
 
 (If you have R locally you can instead run `Rscript scripts/build_sjr_parquet.R` and
 `Rscript -e 'rsconnect::writeManifest(appPrimaryDoc="app.R")'` and commit the results.)
 
 ## Deploy on Posit Connect Cloud
+
+> **Free tier deploys from _public_ GitHub repos only** (private repos need a paid plan),
+> and the free tier allows up to 5 apps. Make this repository public before deploying.
 
 1. Sign in at <https://connect.posit.cloud> and link your GitHub account.
 2. **Publish → Shiny (R)** and select this repository.
