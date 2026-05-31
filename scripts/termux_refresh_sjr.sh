@@ -57,25 +57,45 @@ log "Repo: $REPO_DIR"
 log "Pulling latest..."
 git pull --ff-only 2>&1 | sed 's/^/    /'
 
+# Prefer parquet (smaller, typed) when pandas is available; fall back to the
+# dependency-free gzipped CSV. app.R reads whichever one is committed.
+OUT_PARQUET="data/sjr_all.parquet"
+OUT_CSVGZ="data/sjr_all.csv.gz"
+
+if "$PY" -c "import pandas, pyarrow" >/dev/null 2>&1; then
+  OUT="$OUT_PARQUET"
+  OTHER="$OUT_CSVGZ"
+  log "pandas+pyarrow found -> building parquet"
+else
+  OUT="$OUT_CSVGZ"
+  OTHER="$OUT_PARQUET"
+  log "pandas/pyarrow not found -> building gzipped CSV (no extra deps)"
+fi
+
 log "Downloading SJR data (1999 -> current) via refresh_sjr.py ..."
-if ! "$PY" scripts/refresh_sjr.py --out data/sjr_all.csv.gz; then
+if ! "$PY" scripts/refresh_sjr.py --out "$OUT"; then
   log "ERROR: refresh_sjr.py failed (no years downloaded?). Are you on a"
   log "       non-datacenter IP -- mobile data or normal Wi-Fi, no VPN?"
   exit 1
 fi
 
-# Stage first, THEN check for a difference. Using `git diff` (unstaged) alone
-# misses a brand-new file: data/sjr_all.csv.gz starts out untracked, and
-# `git diff` ignores untracked files -- which would wrongly report "no change"
-# on the very first run. `git diff --cached` compares the staged file to HEAD,
-# so it correctly detects both a new file and content changes.
-git add data/sjr_all.csv.gz
-if git diff --cached --quiet -- data/sjr_all.csv.gz; then
-  log "No change in data/sjr_all.csv.gz -- nothing to commit."
+# If we switched formats, drop the other one from the repo so only one SJR
+# file is tracked (app.R prefers parquet, then csv.gz).
+if [ -f "$OTHER" ]; then
+  git rm -q --ignore-unmatch "$OTHER" 2>/dev/null || rm -f "$OTHER"
+fi
+
+# Stage first, THEN check for a difference. `git diff` (unstaged) ignores
+# untracked files, so a brand-new data file would wrongly look like "no
+# change" on the first run. `git diff --cached` compares staged vs HEAD and
+# correctly detects a new file and content changes.
+git add "$OUT"
+if git diff --cached --quiet; then
+  log "No change in SJR data -- nothing to commit."
   exit 0
 fi
 
-log "Committing and pushing updated data/sjr_all.csv.gz ..."
+log "Committing and pushing updated $OUT ..."
 git commit -m "data: refresh SJR from scimagojr.com ($(date +%Y-%m-%d))" \
   2>&1 | sed 's/^/    /'
 

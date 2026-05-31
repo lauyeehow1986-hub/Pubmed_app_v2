@@ -17,12 +17,13 @@ The original app pulled SJR data at runtime from a third-party, **static** repos
 ever loaded a **single year** (current year − 1). This project instead **owns its SJR data**:
 
 - The SJR data is downloaded for **every year, 1999 → current**, directly from
-  [scimagojr.com](https://www.scimagojr.com/journalrank.php) and combined into one file,
-  `data/sjr_all.csv.gz` (a gzipped CSV with a `year` column).
-- `app.R` reads the local `data/sjr_all.csv.gz` with DuckDB (`read_csv_auto`) and matches each
-  publication to its SJR row by **ISSN and publication year across all years** (a strict
-  improvement over the old single-year lookup). Every column, tab, and feature of the original
-  app is preserved.
+  [scimagojr.com](https://www.scimagojr.com/journalrank.php) and combined into one file
+  with a `year` column: **`data/sjr_all.parquet`** when pandas + pyarrow are available
+  (smaller, typed), or **`data/sjr_all.csv.gz`** otherwise (Python standard library only).
+- `app.R` reads whichever file is present with DuckDB (parquet first, then `read_csv_auto`
+  for the CSV) and matches each publication to its SJR row by **ISSN and publication year
+  across all years** (a strict improvement over the old single-year lookup). Every column,
+  tab, and feature of the original app is preserved.
 
 > **Why the data is refreshed from a phone (Termux), not GitHub Actions.**
 > scimagojr.com returns **HTTP 403 to datacenter/CI IPs**, so a GitHub Actions runner cannot
@@ -30,17 +31,19 @@ ever loaded a **single year** (current year − 1). This project instead **owns 
 > [Termux](https://termux.dev) and pushes the rebuilt file to GitHub. Posit Connect Cloud then
 > redeploys from the new commit. SCImago only updates ~once a year, so this is needed rarely.
 
-> **Why a gzipped CSV (not parquet).** The downloader uses only the **Python standard library**
-> so it runs in Termux with **no pip installs** (writing parquet would need heavy native deps that
-> don't build cleanly on a phone). DuckDB reads gzipped CSV natively, so the app is unaffected.
+> **Parquet vs. gzipped CSV.** Parquet is preferred — it is much smaller (typically ~15–25 MB
+> vs. ~60 MB) and keeps column types, so it stays well under GitHub's 50 MB warning. It needs
+> `pandas` + `pyarrow` in Termux (`pip install pandas pyarrow`). If those aren't installed, the
+> downloader transparently falls back to a gzipped CSV using only the **Python standard library**
+> (no pip). DuckDB reads both natively, so the app works either way.
 
 ## Repository layout
 
 ```
 app.R                              # the Shiny app (server-side)
 manifest.json                      # dependency manifest for Posit Connect Cloud
-data/sjr_all.csv.gz                # combined SJR data, 1999 -> current
-scripts/refresh_sjr.py             # Python stdlib downloader -> data/sjr_all.csv.gz
+data/sjr_all.parquet               # combined SJR data, 1999 -> current (or .csv.gz)
+scripts/refresh_sjr.py             # downloader -> data/sjr_all.parquet (or .csv.gz fallback)
 scripts/termux_refresh_sjr.sh      # phone-side: pull, run refresh, commit, push (1st of month)
 scripts/termux_run_refresh.sh      # job-scheduler entry point (wake lock + logging)
 scripts/termux_schedule_setup.sh   # registers the monthly Android job (Termux:Boot)
@@ -54,7 +57,12 @@ You only need to do this once to seed the data, then ~yearly when SCImago update
 
 ```bash
 pkg update && pkg upgrade -y
-pkg install -y python git          # no R, no pip packages needed
+pkg install -y python git
+
+# Recommended (for the smaller, typed parquet output):
+pip install pandas pyarrow
+# If pandas/pyarrow won't install on your device, skip them -- the downloader
+# falls back to a gzipped CSV using only the Python standard library.
 ```
 
 Clone your repo and let git remember your credentials (use a GitHub
@@ -76,9 +84,10 @@ git config user.email "lauyeehow1986@gmail.com"
 bash scripts/termux_refresh_sjr.sh
 ```
 
-It downloads every year 1999→current from scimagojr.com, rebuilds
-`data/sjr_all.csv.gz`, and commits + pushes it only if it changed. (You can also run the
-downloader directly: `python3 scripts/refresh_sjr.py`.)
+It downloads every year 1999→current from scimagojr.com, rebuilds the SJR data file
+(`data/sjr_all.parquet`, or `data/sjr_all.csv.gz` if pandas/pyarrow aren't installed), and
+commits + pushes it only if it changed. (You can also run the downloader directly:
+`python3 scripts/refresh_sjr.py`.)
 
 ### Make `git push` work without typing a password
 
@@ -141,9 +150,10 @@ the 1st.
 If you have Python on a computer with a non-blocked IP, you can skip Termux:
 
 ```bash
-# from the repo root (Python 3, standard library only):
+# from the repo root (pip install pandas pyarrow for parquet; otherwise CSV.gz):
 python3 scripts/refresh_sjr.py
-git add data/sjr_all.csv.gz && git commit -m "data: refresh SJR" && git push
+git add data/sjr_all.parquet data/sjr_all.csv.gz 2>/dev/null
+git commit -m "data: refresh SJR" && git push
 ```
 
 ## Deploy on Posit Connect Cloud
@@ -155,7 +165,7 @@ git add data/sjr_all.csv.gz && git commit -m "data: refresh SJR" && git push
 2. **Publish → Shiny (R)** and select this repository.
 3. Choose the branch and set the primary file to **`app.R`**.
 4. Deploy. Connect Cloud installs the packages from `manifest.json`, ships the **entire**
-   repository (via `git archive` — including `data/sjr_all.csv.gz`, which the app reads locally),
+   repository (via `git archive` — including the SJR data file, which the app reads locally),
    and **redeploys automatically when you push** to the linked branch — including the SJR data
    pushes from your phone.
 
@@ -164,7 +174,7 @@ git add data/sjr_all.csv.gz && git commit -m "data: refresh SJR" && git push
 Connect Cloud reads the **R version and package set** from `manifest.json`; it ignores the
 manifest's file list/checksums for git deploys (it uses `git archive`). So:
 
-- Refreshing `data/sjr_all.csv.gz` does **not** require touching the manifest.
+- Refreshing the SJR data file does **not** require touching the manifest.
 - Only regenerate it when you change the app's **R package dependencies** (or R version):
 
   ```r
@@ -181,7 +191,7 @@ manifest's file list/checksums for git deploys (it uses `git archive`). So:
 shiny::runApp(".")
 ```
 
-Make sure `data/sjr_all.csv.gz` exists first.
+Make sure a SJR data file (`data/sjr_all.parquet` or `data/sjr_all.csv.gz`) exists first.
 
 ## Data sources
 

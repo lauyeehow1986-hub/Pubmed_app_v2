@@ -87,6 +87,18 @@ REQUIRED = [
     "h_index", "cites_doc_2years", "title", "issn",
 ]
 
+# Target dtypes for the parquet writer. Anything not listed stays string.
+# DuckDB / app.R needs the numeric SJR fields typed (it divides ranks, etc.),
+# and `issn` MUST stay a string so leading zeros survive.
+INT_COLS = ["year", "rank", "h_index", "sourceid",
+            "total_docs", "total_docs_3years", "total_refs",
+            "total_cites_3years", "citations_doc_3years",
+            "citable_docs_3years"]
+FLOAT_COLS = ["sjr", "cites_doc_2years", "ref_doc"]
+STR_COLS = ["issn", "title", "type", "sjr_best_quartile", "country",
+            "region", "publisher", "coverage", "categories", "areas",
+            "open_access", "open_access_diamond"]
+
 
 def normalize_header(h):
     """Lowercase, strip a trailing year, drop all non-alphanumerics."""
@@ -166,12 +178,64 @@ def parse_year(text, year):
     return names, out
 
 
+def write_csv_gz(rows, ordered, out):
+    """Write a gzipped CSV with the Python standard library (no deps)."""
+    with gzip.open(out, "wt", newline="", encoding="utf-8") as gz:
+        writer = csv.DictWriter(gz, fieldnames=ordered, extrasaction="ignore")
+        writer.writeheader()
+        for rec in rows:
+            writer.writerow({k: rec.get(k, "") for k in ordered})
+
+
+def write_parquet(rows, ordered, out):
+    """Write a typed parquet via pandas. Needs pandas + pyarrow/fastparquet.
+
+    Numeric columns are cast (nullable Int64 / float64) and ISSN stays string,
+    so DuckDB reads correct types and leading-zero ISSNs survive. Falls back
+    with a clear message if the parquet engine isn't installed.
+    """
+    try:
+        import pandas as pd
+    except ImportError as e:  # pragma: no cover
+        raise SystemExit(
+            "ERROR: --out is .parquet but pandas is not installed.\n"
+            "  Install it (Termux):  pip install pandas pyarrow\n"
+            "  Or output CSV.gz instead:  --out data/sjr_all.csv.gz\n"
+            f"  ({e})"
+        )
+
+    df = pd.DataFrame([{k: r.get(k, "") for k in ordered} for r in rows],
+                      columns=ordered)
+
+    # Empty strings -> NA before numeric casting.
+    df = df.replace({"": pd.NA})
+
+    for col in INT_COLS:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
+    for col in FLOAT_COLS:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").astype("float64")
+    for col in STR_COLS:
+        if col in df.columns:
+            df[col] = df[col].astype("string")
+
+    try:
+        df.to_parquet(out, index=False, compression="zstd")
+    except Exception:  # pyarrow missing zstd, or fastparquet -> fall back
+        df.to_parquet(out, index=False)
+
+
 def main():
-    ap = argparse.ArgumentParser(description="Build data/sjr_all.csv.gz")
+    ap = argparse.ArgumentParser(
+        description="Build the combined SJR data file (parquet or csv.gz)")
     ap.add_argument("--start", type=int, default=FIRST_YEAR)
     ap.add_argument("--end", type=int,
                     default=datetime.date.today().year)
-    ap.add_argument("--out", default="data/sjr_all.csv.gz")
+    ap.add_argument(
+        "--out", default="data/sjr_all.parquet",
+        help="output path; .parquet uses pandas (smaller, typed), "
+             ".csv.gz uses the stdlib (no deps). Default: data/sjr_all.parquet")
     ap.add_argument("--pause", type=float, default=1.0,
                     help="seconds between years (politeness)")
     args = ap.parse_args()
@@ -229,11 +293,10 @@ def main():
     rest = [c for c in all_cols if c not in front]
     ordered = front + rest
 
-    with gzip.open(args.out, "wt", newline="", encoding="utf-8") as gz:
-        writer = csv.DictWriter(gz, fieldnames=ordered, extrasaction="ignore")
-        writer.writeheader()
-        for rec in all_rows:
-            writer.writerow({k: rec.get(k, "") for k in ordered})
+    if args.out.lower().endswith(".parquet"):
+        write_parquet(all_rows, ordered, args.out)
+    else:
+        write_csv_gz(all_rows, ordered, args.out)
 
     size = os.path.getsize(args.out)
     print("=" * 50)

@@ -812,10 +812,22 @@ fetch_doaj_oa_start <- function(journal_title) {
 # and stored as a single gzipped CSV at data/sjr_all.csv.gz with a `year`
 # column. DuckDB reads CSV.gz natively, so the rest of the app is unchanged.
 
-# Path to the bundled combined SJR data file (relative to the app directory).
-# A gzipped CSV is used so it can be produced with the Python standard library
-# on a phone. DuckDB also reads .parquet here, so either extension works.
-SJR_DATA_PATH <- "data/sjr_all.csv.gz"
+# Candidate paths for the bundled combined SJR data file (relative to the app
+# directory). Parquet is preferred (smaller, typed); a gzipped CSV is the
+# fallback because it can be produced with the Python standard library on a
+# phone. DuckDB reads both natively.
+SJR_DATA_CANDIDATES <- c("data/sjr_all.parquet", "data/sjr_all.csv.gz")
+
+# Resolve to whichever bundled SJR file actually exists (parquet first).
+resolve_sjr_path <- function() {
+  for (p in SJR_DATA_CANDIDATES) {
+    if (file.exists(p)) return(p)
+  }
+  return(NA_character_)
+}
+
+# Default label used in messages when no file is present yet.
+SJR_DATA_PATH <- SJR_DATA_CANDIDATES[[1]]
 
 # Build the DuckDB table source expression for the SJR file. For CSV/CSV.gz we
 # use read_csv_auto and force `issn` to VARCHAR so leading-zero ISSNs are not
@@ -834,15 +846,17 @@ sjr_duckdb_source <- function(path) {
 get_sjr_data <- function() {
   tryCatch(
     {
-      if (!file.exists(SJR_DATA_PATH)) {
-        message("SJR data file not found at: ", SJR_DATA_PATH)
+      sjr_path <- resolve_sjr_path()
+      if (is.na(sjr_path)) {
+        message("SJR data file not found (looked for: ",
+                paste(SJR_DATA_CANDIDATES, collapse = ", "), ")")
         message(
           "Run scripts/refresh_sjr.py (Termux) to download and commit it."
         )
         return(NULL)
       }
 
-      src <- sjr_duckdb_source(SJR_DATA_PATH)
+      src <- sjr_duckdb_source(sjr_path)
 
       # Determine the max year available (for status messaging). Best-effort.
       max_year <- tryCatch(
@@ -858,12 +872,12 @@ get_sjr_data <- function() {
         error = function(e) NA_integer_
       )
 
-      message("Using local SJR data file: ", SJR_DATA_PATH)
-      message("File size: ", file.size(SJR_DATA_PATH), " bytes")
+      message("Using local SJR data file: ", sjr_path)
+      message("File size: ", file.size(sjr_path), " bytes")
       message("Max year in SJR data: ", max_year)
 
       return(list(
-        path = SJR_DATA_PATH,
+        path = sjr_path,
         year = max_year
       ))
     },
@@ -2069,7 +2083,7 @@ server <- function(input, output, session) {
       paste0(
         "✓ SJR data loaded successfully (source: SCImago, your own data file)!\n",
         "  - Source file: ",
-        SJR_DATA_PATH,
+        ifelse(is.na(resolve_sjr_path()), SJR_DATA_PATH, resolve_sjr_path()),
         "\n",
         "  - Years covered (matched rows): ",
         year_range,
@@ -2108,16 +2122,18 @@ server <- function(input, output, session) {
     rv$duckdb_test_result <- tryCatch({
       results <- list()
       
-      # Step 1: Locate the bundled combined SJR data file
-      temp_file <- SJR_DATA_PATH
-      results$path <- temp_file
-      results$step1 <- paste0("✓ Looking for local SJR data file: ", temp_file)
+      # Step 1: Locate the bundled combined SJR data file (parquet or csv.gz)
+      temp_file <- resolve_sjr_path()
+      results$path <- if (is.na(temp_file)) "(none found)" else temp_file
+      results$step1 <- paste0("✓ Looking for local SJR data file: ",
+                              paste(SJR_DATA_CANDIDATES, collapse = " or "))
 
       # Step 2: Check the file exists and looks valid
-      if (!file.exists(temp_file)) {
+      if (is.na(temp_file) || !file.exists(temp_file)) {
         results$step2 <- paste0(
-          "✗ File not found: ", temp_file,
-          " - run scripts/refresh_sjr.py (Termux) to download and commit it."
+          "✗ File not found (looked for ",
+          paste(SJR_DATA_CANDIDATES, collapse = ", "),
+          ") - run scripts/refresh_sjr.py (Termux) to download and commit it."
         )
         return(paste(unlist(results), collapse = "\n"))
       }
