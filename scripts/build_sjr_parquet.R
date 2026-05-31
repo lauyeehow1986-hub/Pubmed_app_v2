@@ -61,26 +61,47 @@ download_year <- function(year) {
 
   message("Downloading SJR ", year, " ... ", appendLF = FALSE)
 
-  resp <- tryCatch(
-    GET(
-      url,
-      add_headers(`User-Agent` = USER_AGENT),
-      write_disk(tmp, overwrite = TRUE),
-      timeout(180)
-    ),
-    error = function(e) {
-      message("FAILED (request error: ", e$message, ")")
-      return(NULL)
-    }
-  )
-  if (is.null(resp)) return(NULL)
+  # Retry transient failures (network blips, rate limiting) with backoff.
+  max_attempts <- 4
+  ok <- FALSE
+  for (attempt in seq_len(max_attempts)) {
+    resp <- tryCatch(
+      GET(
+        url,
+        add_headers(
+          `User-Agent` = USER_AGENT,
+          Accept = "text/csv,application/vnd.ms-excel,*/*",
+          `Accept-Language` = "en-US,en;q=0.9"
+        ),
+        write_disk(tmp, overwrite = TRUE),
+        timeout(180)
+      ),
+      error = function(e) {
+        message("[attempt ", attempt, " request error: ", e$message, "] ",
+                appendLF = FALSE)
+        NULL
+      }
+    )
 
-  if (status_code(resp) != 200) {
-    message("FAILED (HTTP ", status_code(resp), ")")
-    return(NULL)
+    if (
+      !is.null(resp) &&
+        status_code(resp) == 200 &&
+        file.exists(tmp) &&
+        file.size(tmp) >= 1000
+    ) {
+      ok <- TRUE
+      break
+    }
+
+    if (!is.null(resp) && status_code(resp) != 200) {
+      message("[attempt ", attempt, " HTTP ", status_code(resp), "] ",
+              appendLF = FALSE)
+    }
+    if (attempt < max_attempts) Sys.sleep(2^attempt) # 2s, 4s, 8s
   }
-  if (!file.exists(tmp) || file.size(tmp) < 1000) {
-    message("FAILED (empty/too small)")
+
+  if (!ok) {
+    message("FAILED (after ", max_attempts, " attempts)")
     return(NULL)
   }
 
