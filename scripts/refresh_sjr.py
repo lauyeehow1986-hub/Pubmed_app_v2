@@ -33,6 +33,7 @@ import argparse
 import csv
 import datetime
 import gzip
+import hashlib
 import io
 import os
 import re
@@ -180,15 +181,30 @@ def main():
     all_rows = []
     all_cols = []  # preserve first-seen column order
     ok_years = []
+    seen_payloads = {}  # sha1(raw body) -> the year we first accepted it under
     for year in range(args.start, args.end + 1):
         print(f"Downloading SJR {year} ...", flush=True)
         text = fetch_year(year)
         if text is None:
             continue
+
+        # SCImago does NOT 404 a year it hasn't published yet -- it silently
+        # returns the latest available year's data (e.g. asking for 2026 before
+        # it exists yields 2025's rows). Detect that by hashing the raw payload:
+        # if this year's body is byte-identical to one we've already accepted,
+        # it's a phantom duplicate -- skip it so we don't store the same data
+        # under two different years (and don't inflate max year).
+        digest = hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()
+        if digest in seen_payloads:
+            print(f"  [{year}] SKIPPED -- identical to {seen_payloads[digest]} "
+                  f"(SCImago has not published {year} yet)")
+            continue
+
         names, rows = parse_year(text, year)
         if not rows:
             print(f"  [{year}] no rows parsed", file=sys.stderr)
             continue
+        seen_payloads[digest] = year
         for n in (["year"] + names):
             if n not in all_cols:
                 all_cols.append(n)
