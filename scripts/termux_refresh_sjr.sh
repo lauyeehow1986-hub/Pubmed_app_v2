@@ -64,13 +64,18 @@ if ! "$PY" scripts/refresh_sjr.py --out data/sjr_all.csv.gz; then
   exit 1
 fi
 
-if git diff --quiet -- data/sjr_all.csv.gz; then
+# Stage first, THEN check for a difference. Using `git diff` (unstaged) alone
+# misses a brand-new file: data/sjr_all.csv.gz starts out untracked, and
+# `git diff` ignores untracked files -- which would wrongly report "no change"
+# on the very first run. `git diff --cached` compares the staged file to HEAD,
+# so it correctly detects both a new file and content changes.
+git add data/sjr_all.csv.gz
+if git diff --cached --quiet -- data/sjr_all.csv.gz; then
   log "No change in data/sjr_all.csv.gz -- nothing to commit."
   exit 0
 fi
 
 log "Committing and pushing updated data/sjr_all.csv.gz ..."
-git add data/sjr_all.csv.gz
 git commit -m "data: refresh SJR from scimagojr.com ($(date +%Y-%m-%d))" \
   2>&1 | sed 's/^/    /'
 
