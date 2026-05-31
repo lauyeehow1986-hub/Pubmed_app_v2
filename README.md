@@ -41,7 +41,9 @@ app.R                              # the Shiny app (server-side)
 manifest.json                      # dependency manifest for Posit Connect Cloud
 data/sjr_all.csv.gz                # combined SJR data, 1999 -> current
 scripts/refresh_sjr.py             # Python stdlib downloader -> data/sjr_all.csv.gz
-scripts/termux_refresh_sjr.sh      # phone-side wrapper: pull, run refresh, commit, push
+scripts/termux_refresh_sjr.sh      # phone-side: pull, run refresh, commit, push (1st of month)
+scripts/termux_run_refresh.sh      # job-scheduler entry point (wake lock + logging)
+scripts/termux_schedule_setup.sh   # registers the monthly Android job (Termux:Boot)
 ```
 
 ## Refreshing the SJR data on your phone (Termux)
@@ -78,28 +80,61 @@ It downloads every year 1999→current from scimagojr.com, rebuilds
 `data/sjr_all.csv.gz`, and commits + pushes it only if it changed. (You can also run the
 downloader directly: `python3 scripts/refresh_sjr.py`.)
 
-### Schedule it (optional, monthly bot)
+### Make `git push` work without typing a password
 
-Install the Termux:Tasks/Boot add-ons and the scheduler, then:
+A scheduled run can't stop to ask for a password, so cache your credentials once.
+Create a GitHub **Personal Access Token** (Settings → Developer settings → Fine-grained
+tokens → repo `Pubmed_app_v2`, **Contents: Read and write**), then:
 
 ```bash
-pkg install -y termux-api cronie
-# start cron:
-crond
-# edit schedule:
-crontab -e
+cd ~/Pubmed_app_v2
+git config credential.helper store
+# triggers one prompt: username = your GitHub login, password = PASTE THE TOKEN
+git pull
 ```
 
-Add a line to run on the 1st of each month at 09:00 (adjust the path if your
-clone is elsewhere):
+After that first push/pull, the token is saved in `~/.git-credentials` and every
+later `git push` is non-interactive.
 
-```
-0 9 1 * * bash ~/Pubmed_app_v2/scripts/termux_refresh_sjr.sh >> ~/sjr_refresh.log 2>&1
+### Schedule it monthly (noon on the 1st)
+
+Android kills plain `cron` when the phone sleeps, so use the OS-level job
+scheduler plus the **Termux:Boot** app (so it survives reboots). The scheduler
+only fires on an *interval*, so we register a **daily** job and the script itself
+acts **only on the 1st** (`ONLY_ON_DAY=1`, the default).
+
+```bash
+# 1. install the API package and the Boot app
+pkg install -y termux-api
+#    then install "Termux:Boot" from F-Droid and OPEN IT ONCE.
+
+# 2. re-register the job automatically on every reboot
+mkdir -p ~/.termux/boot
+cp ~/Pubmed_app_v2/scripts/termux_schedule_setup.sh ~/.termux/boot/
+
+# 3. register it now (don't wait for a reboot)
+bash ~/Pubmed_app_v2/scripts/termux_schedule_setup.sh
 ```
 
-> Keep the phone awake/charging for scheduled runs, or just run the script by
-> hand each spring when the new SCImago year is published — it only changes
-> once a year.
+Check / manage the job:
+
+```bash
+termux-job-scheduler --pending                 # list scheduled jobs
+termux-job-scheduler --cancel --job-id 1001     # remove it
+tail -f ~/sjr_refresh.log                        # watch run output
+```
+
+**About the "12pm on the 1st" timing.** Android batches scheduled jobs to save
+battery, so the daily check fires *approximately* once a day, not at an exact
+clock time — it will run on the 1st but not necessarily at 12:00:00 sharp. For a
+precise noon trigger, use the **Termux:Tasker** add-on with Tasker's calendar
+trigger (`Day of month = 1`, `Time = 12:00`) calling
+`scripts/termux_run_refresh.sh`. Either way the day-of-month guard keeps it to
+the 1st.
+
+> SCImago only publishes new data ~once a year (spring), so in practice you can
+> also just run `bash ~/Pubmed_app_v2/scripts/termux_refresh_sjr.sh` by hand each
+> spring. To force a run on any day: `ONLY_ON_DAY=0 bash scripts/termux_refresh_sjr.sh`.
 
 ## Building the data on a desktop/laptop instead
 

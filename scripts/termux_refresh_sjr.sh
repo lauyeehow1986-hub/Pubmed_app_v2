@@ -31,7 +31,18 @@ set -u
 REPO_DIR="${REPO_DIR:-$HOME/Pubmed_app_v2}"
 # -------------------------------------------------------------------------------
 
-log() { echo "[$(date '+%H:%M:%S')] $*"; }
+log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
+
+# Android schedulers (termux-job-scheduler) fire on intervals, not calendar
+# dates, and may wake late. So schedule this DAILY and let the script act only
+# on the 1st of the month. Override with: ONLY_ON_DAY=0 (run every time) or
+# ONLY_ON_DAY=15 (some other day). Manual runs: ONLY_ON_DAY=0 bash <script>.
+ONLY_ON_DAY="${ONLY_ON_DAY:-1}"
+TODAY_DOM="$(date +%-d)"
+if [ "$ONLY_ON_DAY" != "0" ] && [ "$TODAY_DOM" != "$ONLY_ON_DAY" ]; then
+  log "Today is day $TODAY_DOM; refresh only runs on day $ONLY_ON_DAY. Skipping."
+  exit 0
+fi
 
 cd "$REPO_DIR" || { log "ERROR: REPO_DIR not found: $REPO_DIR"; exit 1; }
 
