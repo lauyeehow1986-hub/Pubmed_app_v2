@@ -1,10 +1,13 @@
 name: Update SJR parquet
 
-# Rebuilds data/sjr_all.parquet from scimagojr.com (all years 1999 -> current),
-# regenerates manifest.json so its checksums stay in sync with the new data
-# (Posit Connect Cloud validates per-file checksums in the manifest), and
-# commits both back to the branch. SCImago itself only updates ~yearly, so a
+# Rebuilds data/sjr_all.parquet from scimagojr.com (all years 1999 -> current)
+# and commits it back to the branch. SCImago itself only updates ~yearly, so a
 # monthly refresh is plenty.
+#
+# Note: Posit Connect Cloud's git-backed deploy ships the whole repository via
+# `git archive` and ignores the manifest's file list/checksums, so refreshing
+# the parquet does NOT require regenerating manifest.json (only a change to the
+# R version or package set does).
 
 on:
   schedule:
@@ -36,31 +39,17 @@ jobs:
             any::dplyr
             any::janitor
             any::nanoparquet
-            any::rsconnect
-            any::shiny
-            any::shinydashboard
-            any::xml2
-            any::jsonlite
-            any::tidyr
-            any::stringr
-            any::DT
-            any::lubridate
-            any::duckdb
-            any::DBI
 
       - name: Build combined SJR parquet
         run: Rscript scripts/build_sjr_parquet.R
 
-      - name: Regenerate Connect manifest (keeps checksums in sync with new data)
-        run: Rscript -e 'rsconnect::writeManifest(appDir = ".", appPrimaryDoc = "app.R")'
-
-      - name: Commit updated parquet + manifest (if changed)
+      - name: Commit updated parquet (if changed)
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/sjr_all.parquet manifest.json
+          git add data/sjr_all.parquet
           if git diff --staged --quiet; then
-            echo "No changes to commit."
+            echo "No changes to data/sjr_all.parquet."
           else
             git commit -m "chore(data): refresh SJR parquet from scimagojr.com"
             git push

@@ -21,9 +21,7 @@ ever loaded a **single year** (current year − 1). This project instead **owns 
   `data/sjr_all.parquet` (with a `year` column).
 - A GitHub Actions workflow (`.github/workflows/update-sjr.yml`) rebuilds and commits that
   parquet **monthly** (and on demand). SCImago itself only updates roughly once a year, so
-  monthly is comfortably fresh. The same job also **regenerates `manifest.json`** so its
-  per-file checksums stay in sync with the new data (Connect Cloud validates them, so a stale
-  manifest could otherwise fail a redeploy).
+  monthly is comfortably fresh.
 - `app.R` reads the local `data/sjr_all.parquet` and matches each publication to its SJR row by
   **ISSN and publication year across all years** (a strict improvement over the old single-year
   lookup). Every column, tab, and feature of the original app is preserved.
@@ -32,38 +30,50 @@ ever loaded a **single year** (current year − 1). This project instead **owns 
 
 ```
 app.R                              # the Shiny app (server-side)
+manifest.json                      # dependency manifest for Posit Connect Cloud
 data/sjr_all.parquet               # combined SJR data, 1999 -> current (built by CI)
 scripts/build_sjr_parquet.R        # downloader / parquet builder
 .github/workflows/update-sjr.yml   # monthly refresh of the parquet
-.github/workflows/generate-manifest.yml  # (re)generate manifest.json for Posit Connect Cloud
-manifest.json                      # dependency manifest for Posit Connect Cloud
 ```
 
 ## First-time setup
 
-Because the parquet and the Connect Cloud `manifest.json` are produced by R (not committed by
-hand), seed them once via GitHub Actions:
+`manifest.json` is committed. The only thing to seed is the SJR data:
 
-1. **Build the SJR data + manifest:** Actions → **Update SJR parquet** → **Run workflow**. This
-   downloads ~27 years from scimagojr.com (a few minutes), commits `data/sjr_all.parquet`, and
-   also generates/commits `manifest.json`. (The standalone **Generate Connect manifest** workflow
-   runs automatically whenever you change `app.R`, to refresh the manifest between data refreshes.)
+- **Build the SJR data:** Actions → **Update SJR parquet** → **Run workflow**. This downloads
+  ~27 years from scimagojr.com (a few minutes) and commits `data/sjr_all.parquet`.
+  (If you have R locally you can instead run `Rscript scripts/build_sjr_parquet.R` and commit.)
 
-(If you have R locally you can instead run `Rscript scripts/build_sjr_parquet.R` and
-`Rscript -e 'rsconnect::writeManifest(appPrimaryDoc="app.R")'` and commit the results.)
+> **Heads-up — GitHub Actions schedules run from the _default_ branch.** The monthly cron (and
+> the visible "Run workflow" button) only activate once the workflow file is on the repository's
+> default branch. Merge this branch into the default branch (or set it as default) to enable the
+> schedule. (Deploying on Connect Cloud, below, can target any branch.)
 
 ## Deploy on Posit Connect Cloud
 
-> **Free tier deploys from _public_ GitHub repos only** (private repos need a paid plan),
-> and the free tier allows up to 5 apps. Make this repository public before deploying.
+> **Free tier deploys from _public_ GitHub repos only** (private repos need a paid plan), and the
+> free tier allows up to 5 apps. Make this repository public before deploying.
 
 1. Sign in at <https://connect.posit.cloud> and link your GitHub account.
 2. **Publish → Shiny (R)** and select this repository.
-3. Choose the branch (`claude/scimagojr-github-deployment-5Hud3`, or `main` after you merge) and
-   set the primary file to **`app.R`**.
-4. Deploy. Connect Cloud installs the packages listed in `manifest.json`, deploys the whole
-   repository (including `data/sjr_all.parquet`, which the app reads locally), and **redeploys
-   automatically when you push** to the linked branch.
+3. Choose the branch and set the primary file to **`app.R`**.
+4. Deploy. Connect Cloud installs the packages from `manifest.json`, ships the **entire**
+   repository (via `git archive` — including `data/sjr_all.parquet`, which the app reads locally),
+   and **redeploys automatically when you push** to the linked branch.
+
+### About `manifest.json`
+
+Connect Cloud reads the **R version and package set** from `manifest.json`; it ignores the
+manifest's file list/checksums for git deploys (it uses `git archive`). So:
+
+- Refreshing `data/sjr_all.parquet` monthly does **not** require touching the manifest.
+- Only regenerate it when you change the app's **R package dependencies** (or R version):
+
+  ```r
+  rsconnect::writeManifest(appDir = ".", appPrimaryDoc = "app.R")
+  ```
+
+  then commit the updated `manifest.json`.
 
 ## Running locally
 
