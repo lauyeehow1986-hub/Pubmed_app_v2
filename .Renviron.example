@@ -1,0 +1,14 @@
+# Example environment configuration for the Shiny app (NHCS PubMed Tracker).
+# Copy to `.Renviron` (which is git-ignored) for local development, or set the
+# same variables in Posit Connect Cloud -> content -> Vars.
+#
+# NCBI "good citizen" identification. NCBI asks every client to send a tool name
+# and contact email; an API key (optional, free from your NCBI account) raises
+# the rate limit from 3 to 10 requests/second.
+NCBI_TOOL=NHCS_PubMed_Tracker
+NCBI_EMAIL=lauyeehow1986@gmail.com
+# NCBI_API_KEY=your_ncbi_api_key_here
+
+# OPTIONAL: turn on parallel DOAJ lookups (needs the `future` + `future.apply`
+# packages). Off by default; the default pipeline is the polite synchronous loop.
+# USE_ASYNC_DOAJ=false

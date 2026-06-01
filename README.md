@@ -18,12 +18,14 @@ flowchart TB
     subgraph refresh["SJR data refresh (monthly, on your phone)"]
         direction TB
         sched["Android job scheduler + Termux:Boot<br/>(daily job, acts only on the 1st)"]
-        sh["termux_refresh_sjr.sh"]
+        sh["termux_refresh_sjr.sh<br/>(retry push, alerts)"]
         py["refresh_sjr.py<br/>download 1999-current,<br/>dedup phantom years,<br/>write parquet (or csv.gz)"]
         scimago[("scimagojr.com<br/>journalrank.php")]
+        alerts["Alerts (opt-in):<br/>Healthchecks.io dead-man switch<br/>+ Telegram status"]
         sched --> sh --> py
         py -->|"browser User-Agent<br/>(mobile IP, not CI)"| scimago
         scimago -->|"semicolon CSV per year"| py
+        sh -.->|"start / success / fail"| alerts
     end
 
     py -->|"git commit + push<br/>data/sjr_all.parquet"| repo
@@ -37,16 +39,18 @@ flowchart TB
 
     subgraph cloud["Posit Connect Cloud (server-side R)"]
         direction TB
-        connect["Shiny app (app.R)<br/>installs pkgs from manifest.json"]
-        duck["DuckDB reads local<br/>data/sjr_all.parquet by ISSN + year"]
-        connect --> duck
+        connect["app.R (thin) sources appfun/ modules<br/>+ startup data validation"]
+        api["fct_api.R: PubMed + DOAJ<br/>(httr::RETRY, NCBI tool/email/api_key,<br/>memoise cache)"]
+        pipe["fct_pipeline.R + fct_pubmed_parse.R<br/>(verbatim field logic)"]
+        duck["fct_sjr.R: DuckDB reads local<br/>data/sjr_all.parquet by ISSN + year"]
+        connect --> api --> pipe --> duck
     end
 
-    user(["User browser"]) -->|"search query"| connect
-    connect -->|"E-utilities: esearch + efetch"| pubmed[("NCBI PubMed")]
-    connect -->|"Open Access lookup"| doaj[("DOAJ API v4")]
-    pubmed --> connect
-    doaj --> connect
+    user(["User browser"]) -->|"search query (waiter spinner)"| connect
+    api -->|"E-utilities: esearch + efetch"| pubmed[("NCBI PubMed")]
+    api -->|"Open Access lookup"| doaj[("DOAJ API v4")]
+    pubmed --> api
+    doaj --> api
     duck --> result["Author-level + article-level tables<br/>(SJR rank, quartile, JIF, OA, CSV export)"]
     result --> user
 

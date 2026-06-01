@@ -9,6 +9,12 @@
 REPO_DIR="${REPO_DIR:-$HOME/Pubmed_app_v2}"
 LOG="$HOME/sjr_refresh.log"
 
+# Load optional alerting secrets (healthchecks/Telegram) if present. Kept
+# outside the repo so tokens are never committed. See sjr_refresh.env.example.
+if [ -f "$HOME/.sjr_refresh.env" ]; then
+  set -a; . "$HOME/.sjr_refresh.env"; set +a
+fi
+
 # Keep the CPU awake for the duration (best-effort; needs termux-api).
 command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
 

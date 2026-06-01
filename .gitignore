@@ -5,6 +5,15 @@
 .Ruserdata
 *.Rproj
 
+# Secrets / local env (committed only the *.example templates)
+.Renviron
+.sjr_refresh.env
+
+# renv library (the lockfile renv.lock IS committed; the library is not)
+renv/library/
+renv/staging/
+renv/python/
+
 # rsconnect deployment records (local)
 rsconnect/
 
