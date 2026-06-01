@@ -1925,7 +1925,31 @@
   },
   "files": {
     "app.R": {
-      "checksum": "a429154f83396e49764e27251ba4e796"
+      "checksum": "f8d758618bd103dd3b7141eb4beb4e1c"
+    },
+    "data/sjr_all.parquet": {
+      "checksum": "2cf98ea62efc979057ca8d6523b744f6"
+    },
+    "appfun/fct_api.R": {
+      "checksum": "d7603b584c2a3ad0466a5f92cdd73604"
+    },
+    "appfun/fct_helpers.R": {
+      "checksum": "ee29411c9fb58679319a4a64320a73b4"
+    },
+    "appfun/fct_pipeline.R": {
+      "checksum": "4d04754339f3c6ccc81bbac843faf605"
+    },
+    "appfun/fct_pubmed_parse.R": {
+      "checksum": "f8f5b8139b85ea13de43a6e2f16a3872"
+    },
+    "appfun/fct_sjr.R": {
+      "checksum": "b2abeccca38167d67954a7704ea465fe"
+    },
+    "appfun/fct_validate.R": {
+      "checksum": "ff8d906817bb3695941db572a3bb5f45"
+    },
+    "appfun/mod_system_status.R": {
+      "checksum": "047e65c738f592f2e8ac225234e63dc3"
     }
   },
   "users": null
