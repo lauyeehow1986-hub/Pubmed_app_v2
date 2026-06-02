@@ -36,8 +36,18 @@ flowchart TB
 
     subgraph gh["GitHub repo - lauyeehow1986-hub/Pubmed_app_v2"]
         direction TB
-        repo["data/sjr_all.parquet<br/>app.R, manifest.json, scripts/"]
+        repo["data/sjr_all.parquet<br/>app.R, appfun/, manifest.json, scripts/"]
     end
+
+    subgraph actions["GitHub Actions - reachable from CI"]
+        direction TB
+        ci["ci.yml<br/>parse gate + lintr on push / PR"]
+        canary["api-canary.yml weekly<br/>contract check via appfun/ parsers"]
+    end
+
+    repo --> ci
+    repo --> canary
+    canary -.->|"fail: email + Telegram"| maint["Maintainer alerted"]
 
     repo -->|"auto-redeploy on push<br/>git archive: whole repo"| connect
 
@@ -53,6 +63,8 @@ flowchart TB
     user(["User browser"]) -->|"search query, waiter spinner"| connect
     api -->|"E-utilities: esearch + efetch"| pubmed[("NCBI PubMed")]
     api -->|"Open Access lookup"| doaj[("DOAJ API v4")]
+    canary -->|"golden-record contract check"| pubmed
+    canary -->|"oa_start contract check"| doaj
     pubmed --> api
     doaj --> api
     duck --> result["Author-level + article-level tables<br/>SJR rank, quartile, JIF, OA, CSV export"]
@@ -64,10 +76,12 @@ flowchart TB
     class repo,duck store
 ```
 
-The diagram has two halves: the **monthly data refresh** (top — runs on your phone because
-scimagojr.com blocks datacenter/CI IPs) which commits a fresh `data/sjr_all.parquet` to GitHub, and
-the **app runtime** (bottom — Posit Connect Cloud) which auto-redeploys on every push and, per user
-search, calls PubMed + DOAJ live and joins the bundled SJR parquet with DuckDB.
+The diagram has three lanes: the **monthly data refresh** (top — runs on your phone because
+scimagojr.com blocks datacenter/CI IPs) which commits a fresh `data/sjr_all.parquet` to GitHub;
+**GitHub Actions** (middle — CI parse/lint on every push, plus a weekly **API canary** that
+contract-checks NCBI PubMed and DOAJ with the app's own parsers and emails/Telegrams you on a
+break); and the **app runtime** (bottom — Posit Connect Cloud) which auto-redeploys on every push
+and, per user search, calls PubMed + DOAJ live and joins the bundled SJR parquet with DuckDB.
 
 ## What changed vs. the original app
 
