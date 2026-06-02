@@ -1,0 +1,73 @@
+name: JRI institutes watcher
+
+# Monthly check of the SingHealth Duke-NUS research institutes page. If a new
+# institute appears that isn't in jri_institutes (appfun/fct_helpers.R), the job
+# adds it and opens a PR for review. If the page can't be scraped reliably
+# (layout changed / JS-rendered), the script exits non-zero so the job fails and
+# GitHub emails you instead of opening a bad PR. The fetched HTML is always
+# uploaded as an artifact so the extractor can be recalibrated.
+on:
+  schedule:
+    - cron: "0 7 1 * *"   # 1st of the month, 07:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  jri-watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check SingHealth Duke-NUS institutes page
+        run: python3 scripts/check_jri.py
+
+      - name: Upload scrape debug artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jri-debug
+          path: jri_debug/
+          if-no-files-found: ignore
+
+      - name: Open PR if new institutes were added
+        if: success()
+        uses: peter-evans/create-pull-request@v7
+        with:
+          add-paths: appfun/fct_helpers.R
+          branch: jri-watch/update-institutes
+          delete-branch: true
+          commit-message: "data: add new JRI institute(s) from SingHealth Duke-NUS page"
+          title: "Update JRI institutes from SingHealth Duke-NUS page"
+          body: |
+            Automated by the JRI watcher (`.github/workflows/jri-watch.yml`).
+
+            New institute(s) detected on the SingHealth Duke-NUS research
+            institutes page were added to `jri_institutes` in
+            `appfun/fct_helpers.R` (used for JRI_Affiliation tagging).
+
+            ⚠️ **Review the diff before merging** — confirm these are genuine
+            Joint Research Institutes and that the full names are correct (the
+            scraper can occasionally include stray words). The run's
+            `jri-debug` artifact has the raw page + parsed results.
+          labels: |
+            automated
+            jri-watch
+
+      - name: Notify Telegram on failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            curl -fsS -m 15 \
+              --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+              --data-urlencode "text=⚠️ JRI watcher failed: couldn't scrape the SingHealth Duke-NUS institutes page (layout change?). ${RUN_URL}" \
+              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" >/dev/null || true
+          else
+            echo "Telegram secrets not set; skipping notification."
+          fi

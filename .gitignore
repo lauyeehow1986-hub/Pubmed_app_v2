@@ -27,3 +27,6 @@ Thumbs.db
 # Python
 __pycache__/
 *.pyc
+
+# JRI watcher scrape debug output (CI artifact only)
+jri_debug/
