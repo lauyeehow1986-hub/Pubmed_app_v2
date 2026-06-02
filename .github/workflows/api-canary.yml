@@ -10,7 +10,7 @@ on:
   workflow_dispatch:       # allow manual runs from the Actions tab
 
 permissions:
-  contents: read
+  contents: write   # allows the job to commit the DOAJ baseline on first run
 
 jobs:
   api-canary:
@@ -36,6 +36,25 @@ jobs:
 
       - name: Run API contract canary
         run: Rscript tests/api_canary.R
+
+      - name: Commit DOAJ baseline if newly created
+        # The canary writes tests/doaj_openapi.baseline.json only when it's
+        # missing (and the spec fetched OK). If that produced a new/changed
+        # file, commit it so spec-drift detection is enabled from now on. On a
+        # real spec change the canary fails *without* rewriting the baseline, so
+        # this never auto-accepts drift. Runs even if the canary failed for an
+        # unrelated reason (the porcelain check guards what gets committed).
+        if: always()
+        run: |
+          if [ -n "$(git status --porcelain tests/doaj_openapi.baseline.json)" ]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add tests/doaj_openapi.baseline.json
+            git commit -m "ci: seed DOAJ OpenAPI baseline for spec-drift detection"
+            git push origin HEAD:${{ github.ref_name }}
+          else
+            echo "No baseline change to commit."
+          fi
 
       - name: Upload DOAJ OpenAPI baseline (if newly created)
         if: always()
