@@ -57,6 +57,27 @@ check_jri_affiliation <- function(affiliations) {
   return(NA_character_)
 }
 
+# Department candidates can pick up stray conjunctions/punctuation when the
+# publisher uses separators like "; and " before "National Heart Centre
+# Singapore" -- strip leading/trailing and/the/or/&/,/; so we don't emit a bare
+# conjunction (e.g. a department literally named "and").
+.dept_stopwords <- c("and", "the", "of", "or", "&")
+clean_department <- function(x) {
+  x <- trimws(x)
+  repeat {
+    x2 <- sub("^(and|the|or|&|,|;)(\\s+|$)", "", x, ignore.case = TRUE, perl = TRUE)
+    x2 <- sub("(\\s+|^)(and|the|or|&|,|;)$", "", x2, ignore.case = TRUE, perl = TRUE)
+    x2 <- trimws(x2)
+    if (identical(x2, x)) break
+    x <- x2
+  }
+  x
+}
+is_valid_department <- function(x) {
+  x <- trimws(x)
+  nchar(x) > 2 && !tolower(x) %in% .dept_stopwords
+}
+
 # Function to extract department/unit from NHCS affiliation
 # Extracts the unit that appears immediately before "National Heart Centre Singapore"
 extract_nhcs_department <- function(affiliations) {
@@ -113,8 +134,7 @@ extract_nhcs_department <- function(affiliations) {
 
           if (!is.na(nhcs_index) && nhcs_index > 1) {
             # Get the part immediately before NHCS
-            dept_candidate <- parts[nhcs_index - 1]
-            dept_candidate <- trimws(dept_candidate)
+            dept_candidate <- clean_department(parts[nhcs_index - 1])
 
             # Check if it's a valid department/unit (not just a country/city)
             # Exclude common non-department entries
@@ -135,7 +155,7 @@ extract_nhcs_department <- function(affiliations) {
               grepl(p, dept_candidate, ignore.case = TRUE)
             }))
 
-            if (!is_excluded && nchar(dept_candidate) > 2) {
+            if (!is_excluded && is_valid_department(dept_candidate)) {
               departments <- c(departments, dept_candidate)
             }
           } else if (!is.na(nhcs_index) && nhcs_index == 1) {
@@ -149,10 +169,10 @@ extract_nhcs_department <- function(affiliations) {
               "",
               nhcs_part
             )
-            before_nhcs <- trimws(before_nhcs)
+            before_nhcs <- clean_department(before_nhcs)
 
             if (
-              nchar(before_nhcs) > 0 &&
+              is_valid_department(before_nhcs) &&
                 !grepl("^National Heart Cent", before_nhcs, ignore.case = TRUE)
             ) {
               departments <- c(departments, before_nhcs)
@@ -247,9 +267,14 @@ get_author_position <- function(index, total) {
 
   if (index <= 10) {
     return(positions[index])
-  } else {
-    return(paste0(index, "th"))
   }
+  # Correct ordinal suffix (e.g. 22 -> "22nd", not "22th"); 11-13 are "th".
+  suffix <- if (index %% 100 %in% 11:13) {
+    "th"
+  } else {
+    switch(as.character(index %% 10), "1" = "st", "2" = "nd", "3" = "rd", "th")
+  }
+  paste0(index, suffix)
 }
 
 # Safe XML text extraction
