@@ -94,18 +94,44 @@ ever loaded a **single year** (current year − 1). This project instead **owns 
 ## Repository layout
 
 ```
-app.R                              # the Shiny app (server-side)
-manifest.json                      # dependency manifest for Posit Connect Cloud
+app.R                              # thin Shiny entrypoint: UI + server, sources appfun/
+appfun/                            # modular app logic (sourced by app.R)
+  fct_api.R                        #   PubMed + DOAJ calls (httr::RETRY, NCBI id, memoise cache)
+  fct_pubmed_parse.R               #   XML -> table fields
+  fct_pipeline.R                   #   search pipeline (PubMed -> DOAJ -> SJR)
+  fct_sjr.R                        #   DuckDB query over the SJR data file
+  fct_helpers.R                    #   shared helpers (JRI institutes, author position, ...)
+  fct_validate.R                   #   startup data-integrity check
+  mod_system_status.R              #   Shiny module: System Status panel
+manifest.json                      # R version + package set for Posit Connect Cloud
+renv.lock                          # pinned package versions for reproducible local dev
+.Rprofile / .Renviron.example      # local renv activation; env-var template (NCBI id, etc.)
+.lintr                             # lintr config tuned for the modular layout
 data/sjr_all.parquet               # combined SJR data, 1999 -> current (or .csv.gz)
 scripts/refresh_sjr.py             # downloader -> data/sjr_all.parquet (or .csv.gz fallback)
-scripts/termux_refresh_sjr.sh      # phone-side: pull, run refresh, commit, push (1st of month)
-scripts/termux_run_refresh.sh      # job-scheduler entry point (wake lock + logging)
+scripts/termux_refresh_sjr.sh      # phone-side: pull, run refresh, commit, push, alert (1st of month)
+scripts/termux_run_refresh.sh      # job-scheduler entry point (loads env, wake lock, logging)
 scripts/termux_schedule_setup.sh   # registers the monthly Android job (Termux:Boot)
+scripts/sjr_refresh.env.example    # template for ~/.sjr_refresh.env (alerts + JOB_NETWORK)
+tests/parse_check.R                # dependency-free smoke test: parses app.R + appfun/
+.github/workflows/ci.yml           # CI: R parse gate + advisory lint on push/PR
+.claude/                           # SessionStart hook for Claude Code on the web
+docs/TERMUX_SETUP.md               # full phone-side runbook (Healthchecks.io + Telegram)
 ```
+
+> **Modular by design.** `app.R` was split from a single ~1,500-line file into the focused
+> `appfun/` modules above; the field-producing logic was preserved **verbatim**, so every
+> column, tab, and feature of the original app is unchanged. `app.R` sources each module at
+> startup and runs a data-integrity check before serving.
+
 
 ## Refreshing the SJR data on your phone (Termux)
 
 You only need to do this once to seed the data, then ~yearly when SCImago updates.
+
+> 📖 **For the complete walkthrough — including the optional Healthchecks.io dead-man's switch
+> and Telegram status alerts — see [`docs/TERMUX_SETUP.md`](docs/TERMUX_SETUP.md).** The steps
+> below are the essentials.
 
 ### One-time Termux setup
 
@@ -199,6 +225,23 @@ the 1st.
 > also just run `bash ~/Pubmed_app_v2/scripts/termux_refresh_sjr.sh` by hand each
 > spring. To force a run on any day: `ONLY_ON_DAY=0 bash scripts/termux_refresh_sjr.sh`.
 
+### Monitoring & alerts (optional)
+
+The refresh can tell you whether it ran and worked, without you checking manually. Both are
+opt-in via `~/.sjr_refresh.env` (kept outside the repo, copied from
+[`scripts/sjr_refresh.env.example`](scripts/sjr_refresh.env.example)):
+
+- **Healthchecks.io dead-man's switch** — set `HEALTHCHECKS_URL` to a check's ping URL. The
+  script pings `…/start` when it begins, the base URL on success (including "no change"), and
+  `…/fail` on failure. If a monthly run never happens, Healthchecks.io **emails you**.
+- **Telegram status messages** — set `TELEGRAM_BOT_TOKEN` (from @BotFather) and
+  `TELEGRAM_CHAT_ID` (from @userinfobot) to get a ✅ / ℹ️ / ❌ message after each run, with the
+  new row count on a successful push.
+- **`JOB_NETWORK`** — `unmetered` (Wi-Fi only, default), `any` (Wi-Fi or mobile data), or
+  `cellular`. Set it here rather than editing the scheduler script.
+
+Step-by-step setup for both services is in [`docs/TERMUX_SETUP.md`](docs/TERMUX_SETUP.md).
+
 ## Building the data on a desktop/laptop instead
 
 If you have Python on a computer with a non-blocked IP, you can skip Termux:
@@ -246,6 +289,23 @@ shiny::runApp(".")
 ```
 
 Make sure a SJR data file (`data/sjr_all.parquet` or `data/sjr_all.csv.gz`) exists first.
+
+For a pinned, reproducible package set, `renv.lock` is committed and `.Rprofile` activates
+[`renv`](https://rstudio.github.io/renv/) automatically *if it's installed* (it's a no-op
+otherwise, so it never interferes with Connect Cloud or a plain `runApp()`). Copy
+`.Renviron.example` to `.Renviron` to set your NCBI tool/email (and optional API key) locally.
+
+## Continuous integration & checks
+
+- **GitHub Actions** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on every push
+  and pull request: it installs R, runs the **parse smoke test** as a blocking gate, and runs
+  **lintr** as advisory output. Neither step needs DuckDB, so CI stays fast.
+- **`tests/parse_check.R`** is a dependency-free smoke test that parses `app.R` and every
+  `appfun/` module and fails on any syntax error. Run it locally with `Rscript tests/parse_check.R`.
+- **Claude Code on the web** uses a `SessionStart` hook (`.claude/hooks/session-start.sh`) to
+  install R + the app's packages and `lintr`, so the same parse/lint checks work in-session.
+- **`.lintr`** disables `object_usage_linter` (single-file linting can't see sibling-module
+  functions, so those would be false positives in the modular layout) and widens line length to 120.
 
 ## Data sources
 
