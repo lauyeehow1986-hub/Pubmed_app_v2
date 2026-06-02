@@ -226,13 +226,16 @@ plotly_bar <- function(tb, color = "#2c7fb8", horiz = FALSE, pct = FALSE) {
   cols <- if (length(color) == 1) rep(color, length(vals)) else
     rep(color, length.out = length(vals))
   if (horiz) {
-    p <- plotly::plot_ly(y = cats, x = vals, type = "bar", orientation = "h",
+    cats_w <- vapply(cats, function(x) paste(strwrap(x, width = 24),
+                                             collapse = "<br>"), character(1))
+    p <- plotly::plot_ly(y = cats_w, x = vals, type = "bar", orientation = "h",
                          marker = list(color = cols), text = hov,
                          hoverinfo = "text")
     p <- plotly::layout(
       p, margin = list(t = 10),
       xaxis = list(title = ""),
-      yaxis = list(title = "", categoryorder = "array", categoryarray = cats)
+      yaxis = list(title = "", categoryorder = "array", categoryarray = cats_w,
+                   automargin = TRUE)
     )
   } else {
     p <- plotly::plot_ly(x = cats, y = vals, type = "bar",

@@ -843,13 +843,20 @@ server <- function(input, output, session) {
     total <- sum(tb)
     labs <- if (pct) paste0(tb, "  (", round(100 * tb / total), "%)") else as.character(tb)
     op <- par(
-      mar = if (horiz) c(4, 12, 1, 3) else c(4, 4.2, 1.2, 1),
+      mar = if (horiz) c(4, 13, 1.2, 3) else c(4, 4.2, 1.2, 1),
       mgp = c(2.5, 0.6, 0), las = 1
     )
     on.exit(par(op), add = TRUE)
     if (horiz) {
+      # Wrap long category labels so they don't get clipped by the left margin.
+      names(tb) <- vapply(
+        names(tb),
+        function(x) paste(strwrap(x, width = 20), collapse = "\n"),
+        character(1)
+      )
       bp <- barplot(tb, col = col, border = NA, horiz = TRUE,
-                    cex.names = cex, xaxt = "n", xlim = c(0, max(tb) * 1.18))
+                    cex.names = min(cex, 0.95), xaxt = "n",
+                    xlim = c(0, max(tb) * 1.18))
       abline(v = pretty(c(0, max(tb))), col = "grey92", lwd = 1)
       barplot(tb, col = col, border = NA, horiz = TRUE, add = TRUE,
               axes = FALSE, axisnames = FALSE)
