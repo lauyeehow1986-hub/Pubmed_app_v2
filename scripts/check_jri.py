@@ -49,6 +49,12 @@ PAIR_RE = re.compile(
     r"\(([A-Z][A-Z0-9][A-Z0-9\-]*)\)"
 )
 INSTITUTE_RE = re.compile(r"Institut", re.I)
+# The real institutes are a <ul> of links right after this intro phrase; scoping
+# to it avoids the nav/breadcrumb/footer noise elsewhere on the page.
+SECTION_RE = re.compile(r"AMC Research Institutes.*?(<ul\b.*?</ul>)", re.I | re.S)
+# Institute-named entities on the page that are NOT Joint Research Institutes
+# (the "Academic Medicine Research Institute" is the AMC umbrella itself).
+IGNORE_ACRONYMS = {"AMRI"}
 # Reject support units that aren't Joint Research Institutes: the JRIs we track
 # are all "...Institute(s)", but the page also lists centres, coordinating
 # centres and committees.
@@ -97,12 +103,15 @@ def extract_pairs(text):
     """Return {ACRONYM: Full Name} for institute/centre names found on the page."""
     out = {}
     for name, acr in PAIR_RE.findall(text):
+        acr = acr.strip()
         name = WS_RE.sub(" ", name).strip(" ,.")
+        if acr.upper() in IGNORE_ACRONYMS:
+            continue  # known non-JRI (e.g. AMC umbrella)
         if not INSTITUTE_RE.search(name):
             continue  # not an Institute name
         if EXCLUDE_RE.search(name):
             continue  # a Centre / Committee / Coordinating unit, not a JRI
-        out.setdefault(acr.strip(), clean_name(name))  # first/fullest name wins
+        out.setdefault(acr, clean_name(name))  # first/fullest name wins
     return out
 
 
@@ -135,7 +144,16 @@ def main():
         return 2
     open(os.path.join(DEBUG_DIR, "page.html"), "w", encoding="utf-8").write(html)
 
-    pairs = extract_pairs(to_text(html))
+    # Prefer the institutes <ul> that follows the "AMC Research Institutes"
+    # intro; fall back to the whole page if that structure isn't found (the
+    # exclusion filters + ignore list still guard the fallback).
+    m = SECTION_RE.search(html)
+    if m:
+        print("Scoped to the AMC Research Institutes list section.")
+        pairs = extract_pairs(to_text(m.group(1)))
+    else:
+        print("Institutes list section not found; scanning whole page.")
+        pairs = extract_pairs(to_text(html))
     json.dump(pairs, open(os.path.join(DEBUG_DIR, "extracted.json"), "w"),
               indent=2, sort_keys=True)
     print(f"Extracted {len(pairs)} institute(s) from the page:")
