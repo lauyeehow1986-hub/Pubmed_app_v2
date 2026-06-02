@@ -213,11 +213,12 @@ parse_single_article <- function(article_node) {
       epub_date <- create_date(epub_year, epub_month, epub_day)
       print_date <- create_date(print_year, print_month, print_day)
       
-      # If no epub date but we have print date, use print date
-      # If no print date but we have epub date, that's normal (ahead of print)
-      
-      # For CY/FY calculation, prefer epub date if available, else print date, else pub_date
-      effective_date <- if (!is.na(epub_date)) epub_date else if (!is.na(print_date)) print_date else pub_date
+      # Reported year/month follows the DATE OF PUBLICATION (the journal's
+      # print/issue date, matching PubMed's [dp]); fall back to the electronic
+      # (epub ahead-of-print) date, then the generic PubMed date. This keeps the
+      # reported year aligned with a [dp] date-range search -- e.g. a paper put
+      # online in 2024 but published in the Jan-2025 issue reports as 2025.
+      effective_date <- if (!is.na(print_date)) print_date else if (!is.na(epub_date)) epub_date else pub_date
 
       # Extract publication status (epub flag)
       pub_status <- safe_xml_text(xml_find_first(
@@ -320,7 +321,7 @@ parse_single_article <- function(article_node) {
             ".",
             ifelse(!is.na(pubmodel_text), pubmodel_text, ""),
             ifelse(
-              !is.na(pub_date_formatted),
+              !is.na(pub_date),
               paste0(".", format(pub_date, "%Y %b %d")),
               ""
             )
