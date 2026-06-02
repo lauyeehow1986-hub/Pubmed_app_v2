@@ -1,6 +1,8 @@
 # NHCS PubMed Tracker
 
 [![Live demo](https://img.shields.io/badge/Live%20demo-Open%20app-2ea44f?style=for-the-badge&logo=posit&logoColor=white)](https://lauyh-901385432-pubmed-app-v2.share.connect.posit.cloud)
+[![CI](https://img.shields.io/github/actions/workflow/status/lauyeehow1986-hub/Pubmed_app_v2/ci.yml?branch=main&style=for-the-badge&label=CI&logo=githubactions&logoColor=white)](https://github.com/lauyeehow1986-hub/Pubmed_app_v2/actions/workflows/ci.yml)
+[![Made with R + Shiny](https://img.shields.io/badge/Made%20with-R%20%2B%20Shiny-276DC3?style=for-the-badge&logo=r&logoColor=white)](https://shiny.posit.co/)
 
 A Shiny dashboard that searches PubMed for **National Heart Centre Singapore (NHCS)**
 publications and enriches each record with:
