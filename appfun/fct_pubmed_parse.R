@@ -253,19 +253,15 @@ parse_single_article <- function(article_node) {
       results <- list()
       total_authors <- length(authors_list)
 
-      # First, collect ALL authors with Duke-NUS Medical School affiliation
+      # First, collect ALL authors with a Duke-NUS affiliation. Matching is done
+      # by is_duke_nus_affiliation() (see fct_helpers.R), which handles the
+      # spelled-out "Duke-National University of Singapore..." form PubMed often
+      # uses, not just the "Duke-NUS" abbreviation.
       duke_nus_authors <- character(0)
       for (author_name in authors_list) {
         author_affs <- affiliations_list[[author_name]]
-        if (!is.null(author_affs) && !all(is.na(author_affs))) {
-          if (
-            any(
-              grepl("Duke-NUS Medical School", author_affs, ignore.case = TRUE),
-              na.rm = TRUE
-            )
-          ) {
-            duke_nus_authors <- c(duke_nus_authors, author_name)
-          }
+        if (is_duke_nus_affiliation(author_affs)) {
+          duke_nus_authors <- c(duke_nus_authors, author_name)
         }
       }
       duke_nus_authors_str <- if (length(duke_nus_authors) > 0) {

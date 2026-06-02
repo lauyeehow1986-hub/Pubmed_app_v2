@@ -184,6 +184,29 @@ is_nhcs_author <- function(affiliations) {
   )
 }
 
+# Patterns that mean "Duke-NUS Medical School" across the spellings PubMed uses.
+# PubMed affiliations frequently write the name out in full
+# ("Duke-National University of Singapore Medical School") rather than the
+# abbreviation, so matching only "Duke-NUS Medical School" misses many records.
+# This covers: "Duke-NUS", "Duke NUS", "DukeNUS", the "Graduate Medical School"
+# variant, and the spelled-out "Duke-National University of Singapore".
+duke_nus_pattern <- "Duke[ -]?NUS|Duke[ -]?National University of Singapore"
+
+# Function to check if any of an author's affiliations indicate Duke-NUS
+is_duke_nus_affiliation <- function(affiliations) {
+  if (
+    is.null(affiliations) ||
+      length(affiliations) == 0 ||
+      all(is.na(affiliations))
+  ) {
+    return(FALSE)
+  }
+  any(
+    grepl(duke_nus_pattern, affiliations, ignore.case = TRUE),
+    na.rm = TRUE
+  )
+}
+
 # Function to determine financial year (FY starts April)
 get_financial_year <- function(date) {
   if (is.na(date)) {
