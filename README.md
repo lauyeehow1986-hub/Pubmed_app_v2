@@ -13,7 +13,8 @@ publications and enriches each record with:
   cites/doc (2 years) "JIF", JIF category, and annual rank percentile
 
 It runs server-side (R), so it makes live calls to the NCBI E-utilities and DOAJ APIs and
-queries the SJR data with DuckDB.
+queries the SJR data with DuckDB. An **Analytics** tab turns the results into an interactive,
+filterable dashboard (see below).
 
 ## Architecture
 
@@ -43,11 +44,15 @@ flowchart TB
         direction TB
         ci["ci.yml<br/>parse gate + lintr on push / PR"]
         canary["api-canary.yml weekly<br/>contract check via appfun/ parsers"]
+        jri["jri-watch.yml monthly<br/>new JRI institute -> PR"]
     end
 
     repo --> ci
     repo --> canary
+    repo --> jri
     canary -.->|"fail: email + Telegram"| maint["Maintainer alerted"]
+    jri -.->|"new institute: PR + Telegram"| maint
+    jri -->|"scrape institutes list"| shdn[("SingHealth Duke-NUS<br/>research institutes page")]
 
     repo -->|"auto-redeploy on push<br/>git archive: whole repo"| connect
 
@@ -72,16 +77,18 @@ flowchart TB
 
     classDef ext fill:#fde,stroke:#c69
     classDef store fill:#def,stroke:#69c
-    class scimago,pubmed,doaj ext
+    class scimago,pubmed,doaj,shdn ext
     class repo,duck store
 ```
 
 The diagram has three lanes: the **monthly data refresh** (top — runs on your phone because
 scimagojr.com blocks datacenter/CI IPs) which commits a fresh `data/sjr_all.parquet` to GitHub;
-**GitHub Actions** (middle — CI parse/lint on every push, plus a weekly **API canary** that
-contract-checks NCBI PubMed and DOAJ with the app's own parsers and emails/Telegrams you on a
-break); and the **app runtime** (bottom — Posit Connect Cloud) which auto-redeploys on every push
-and, per user search, calls PubMed + DOAJ live and joins the bundled SJR parquet with DuckDB.
+**GitHub Actions** (middle — CI parse/lint on every push; a weekly **API canary** that
+contract-checks NCBI PubMed and DOAJ with the app's own parsers; and a monthly **JRI watcher**
+that scrapes the SingHealth Duke-NUS institutes page and opens a PR when a new institute appears —
+all alerting you by email/Telegram); and the **app runtime** (bottom — Posit Connect Cloud) which
+auto-redeploys on every push and, per user search, calls PubMed + DOAJ live and joins the bundled
+SJR parquet with DuckDB.
 
 ## What changed vs. the original app
 
@@ -109,6 +116,20 @@ ever loaded a **single year** (current year − 1). This project instead **owns 
 > downloader transparently falls back to a gzipped CSV using only the **Python standard library**
 > (no pip). DuckDB reads both natively, so the app works either way.
 
+## Analytics dashboard
+
+The **Analytics** tab summarises the current search into KPI cards (publications, % Open Access,
+% Q1, departments, avg authors/article) and charts: publications by year, journal-quartile mix,
+Open Access split, top departments, an Open-Access/Q1 **trend over time**, NHCS **author role**
+(first/middle/last), and a Duke-NUS/JRI **collaboration** breakdown — plus interactive year-by-year
+and top-journal tables and a one-click **Summary CSV**.
+
+It's **interactive**: a filter panel (year-range slider, department multi-select, quartile
+checkboxes, Open-Access toggle) re-slices every KPI and chart live. Charts render with base R by
+default; if the optional [`plotly`](https://plotly.com/r/) package is available they upgrade to
+interactive charts (hover tooltips, legend toggles) automatically — `plotly` is included in
+`manifest.json`, and the app falls back to base-R plots if it isn't installed.
+
 ## Repository layout
 
 ```
@@ -132,8 +153,14 @@ scripts/termux_refresh_sjr.sh      # phone-side: pull, run refresh, commit, push
 scripts/termux_run_refresh.sh      # job-scheduler entry point (loads env, wake lock, logging)
 scripts/termux_schedule_setup.sh   # registers the monthly Android job (Termux:Boot)
 scripts/sjr_refresh.env.example    # template for ~/.sjr_refresh.env (alerts + JOB_NETWORK)
+scripts/check_jri.py               # JRI watcher: scrape institutes page -> propose new entries
 tests/parse_check.R                # dependency-free smoke test: parses app.R + appfun/
+tests/api_canary.R                 # weekly PubMed/DOAJ contract check (reuses appfun/ parsers)
+tests/doaj_openapi.baseline.json   # DOAJ OpenAPI snapshot for spec-drift detection
 .github/workflows/ci.yml           # CI: R parse gate + advisory lint on push/PR
+.github/workflows/api-canary.yml   # weekly NCBI PubMed + DOAJ contract canary
+.github/workflows/jri-watch.yml    # monthly JRI institutes watcher (auto-PR new institutes)
+.github/workflows/telegram-test.yml# manual: verify the TELEGRAM_* repo secrets
 .claude/                           # SessionStart hook for Claude Code on the web
 docs/TERMUX_SETUP.md               # full phone-side runbook (Healthchecks.io + Telegram)
 ```
@@ -304,6 +331,7 @@ manifest's file list/checksums for git deploys (it uses `git archive`). So:
 ```r
 # install.packages(c("shiny","shinydashboard","xml2","httr","jsonlite","dplyr",
 #                     "tidyr","stringr","DT","lubridate","duckdb","DBI"))
+# optional: "plotly" (interactive Analytics charts), "waiter", "memoise"
 shiny::runApp(".")
 ```
 
@@ -326,6 +354,14 @@ otherwise, so it never interferes with Connect Cloud or a plain `runApp()`). Cop
   `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` (and `NCBI_API_KEY`) repo **secrets** to also get a
   Telegram alert. The first run uploads a DOAJ OpenAPI baseline as an artifact; commit it to
   `tests/doaj_openapi.baseline.json` to enable spec-drift detection.
+- **JRI institutes watcher** ([`.github/workflows/jri-watch.yml`](.github/workflows/jri-watch.yml))
+  runs monthly (and on demand). `scripts/check_jri.py` scrapes the SingHealth Duke-NUS research
+  institutes page and compares it to `jri_institutes` in `appfun/fct_helpers.R` (the JRI tagging
+  list). When a genuinely new institute appears, it **opens a PR** adding it (and Telegrams you);
+  if the page can't be scraped reliably it fails and alerts instead of proposing junk. Requires
+  *Settings → Actions → General → Allow GitHub Actions to create and approve pull requests*.
+- **Telegram test** ([`.github/workflows/telegram-test.yml`](.github/workflows/telegram-test.yml))
+  is a manual workflow to confirm the `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` repo secrets are set.
 - **`tests/parse_check.R`** is a dependency-free smoke test that parses `app.R` and every
   `appfun/` module and fails on any syntax error. Run it locally with `Rscript tests/parse_check.R`.
 - **Claude Code on the web** uses a `SessionStart` hook (`.claude/hooks/session-start.sh`) to
