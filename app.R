@@ -31,6 +31,7 @@ if (is.null(.app_dir) || !nzchar(.app_dir)) .app_dir <- getwd()
 .src("fct_sjr.R")          # SJR data file + DuckDB query (verbatim)
 .src("fct_pipeline.R")     # search pipeline -> rv (verbatim body)
 .src("fct_validate.R")     # startup integrity validation
+.src("fct_analytics.R")    # Analytics tab summaries (pure helpers)
 .src("mod_system_status.R")# NS/moduleServer demo module (additive)
 
 # Startup integrity check: warn if no data file; stop only if present-but-corrupt.
@@ -47,6 +48,7 @@ ui <- dashboardPage(
     sidebarMenu(
       menuItem("Search PubMed", tabName = "search", icon = icon("search")),
       menuItem("Results", tabName = "results", icon = icon("table")),
+      menuItem("Analytics", tabName = "analytics", icon = icon("chart-bar")),
       menuItem("Debug SJR", tabName = "debug", icon = icon("bug")),
       menuItem("About", tabName = "about", icon = icon("info-circle")),
       menuItem("System Status", tabName = "system_status", icon = icon("heartbeat"))
@@ -279,6 +281,56 @@ ui <- dashboardPage(
             verbatimTextOutput("sjr_status"),
             br(),
             DTOutput("sjr_table")
+          )
+        )
+      ),
+
+      # Analytics Tab
+      tabItem(
+        tabName = "analytics",
+        fluidRow(
+          valueBoxOutput("kpi_pubs", width = 3),
+          valueBoxOutput("kpi_oa", width = 3),
+          valueBoxOutput("kpi_q1", width = 3),
+          valueBoxOutput("kpi_depts", width = 3)
+        ),
+        fluidRow(
+          box(
+            title = "Publications by year", status = "primary",
+            solidHeader = TRUE, width = 6,
+            plotOutput("plot_year", height = 300)
+          ),
+          box(
+            title = "Journal quartile (Q1-Q4)", status = "info",
+            solidHeader = TRUE, width = 6,
+            plotOutput("plot_quartile", height = 300)
+          )
+        ),
+        fluidRow(
+          box(
+            title = "Open Access", status = "success",
+            solidHeader = TRUE, width = 6,
+            plotOutput("plot_oa", height = 300)
+          ),
+          box(
+            title = "Top departments", status = "warning",
+            solidHeader = TRUE, width = 6,
+            plotOutput("plot_dept", height = 320)
+          )
+        ),
+        fluidRow(
+          box(
+            title = "Summary export", status = "primary",
+            solidHeader = TRUE, width = 12,
+            p(
+              "A tidy summary (counts by year, Open Access, journal quartile, ",
+              "and department) for your poster or report. Charts above update ",
+              "after each search."
+            ),
+            downloadButton(
+              "download_summary", "Download Summary (CSV)",
+              class = "btn-success"
+            )
           )
         )
       ),
@@ -649,6 +701,79 @@ server <- function(input, output, session) {
       rownames = FALSE
     )
   })
+
+  # --------------------------------------------------------------------------
+  # Analytics tab: KPI cards + charts from the article-level (collapsed) table.
+  # --------------------------------------------------------------------------
+  analytics_data <- reactive({
+    req(rv$collapsed_df)
+    rv$collapsed_df
+  })
+
+  # Empty-safe base-R barplot helper (no extra package dependency).
+  bar_or_msg <- function(tb, col = "#3c8dbc", horiz = FALSE, las = 1, ...) {
+    if (is.null(tb) || !length(tb) || sum(tb) == 0) {
+      plot.new()
+      text(0.5, 0.5, "No data yet - run a search.", col = "grey40")
+      return(invisible())
+    }
+    op <- par(mar = if (horiz) c(4, 11, 1, 1) else c(5, 4, 1, 1))
+    on.exit(par(op), add = TRUE)
+    bp <- barplot(tb, col = col, border = NA, horiz = horiz, las = las, ...)
+    if (!horiz) text(bp, tb, labels = tb, pos = 3, xpd = TRUE, cex = 0.9)
+    invisible(bp)
+  }
+
+  output$kpi_pubs <- shinydashboard::renderValueBox({
+    shinydashboard::valueBox(
+      analytics_kpis(analytics_data())$n_pubs, "Publications",
+      icon = icon("file-lines"), color = "aqua"
+    )
+  })
+  output$kpi_oa <- shinydashboard::renderValueBox({
+    shinydashboard::valueBox(
+      paste0(analytics_kpis(analytics_data())$pct_oa, "%"), "Open Access",
+      icon = icon("unlock"), color = "green"
+    )
+  })
+  output$kpi_q1 <- shinydashboard::renderValueBox({
+    shinydashboard::valueBox(
+      paste0(analytics_kpis(analytics_data())$pct_q1, "%"), "Q1 journals",
+      icon = icon("trophy"), color = "yellow"
+    )
+  })
+  output$kpi_depts <- shinydashboard::renderValueBox({
+    shinydashboard::valueBox(
+      analytics_kpis(analytics_data())$n_depts, "Departments",
+      icon = icon("sitemap"), color = "purple"
+    )
+  })
+
+  output$plot_year <- renderPlot(
+    bar_or_msg(year_counts(analytics_data()), col = "#3c8dbc")
+  )
+  output$plot_quartile <- renderPlot(
+    bar_or_msg(
+      quartile_counts(analytics_data()),
+      col = c("#1a9850", "#91cf60", "#fee08b", "#fc8d59", "#bdbdbd")
+    )
+  )
+  output$plot_oa <- renderPlot(
+    bar_or_msg(oa_counts(analytics_data()), col = c("#1a9850", "#bdbdbd"))
+  )
+  output$plot_dept <- renderPlot(
+    bar_or_msg(
+      rev(dept_counts(analytics_data(), top = 10)),
+      col = "#dd8f3c", horiz = TRUE
+    )
+  )
+
+  output$download_summary <- downloadHandler(
+    filename = function() paste0("nhcs_pubmed_summary_", Sys.Date(), ".csv"),
+    content = function(file) {
+      write.csv(analytics_summary_long(analytics_data()), file, row.names = FALSE)
+    }
+  )
 
   # SJR status output
   output$sjr_status <- renderText({

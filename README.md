@@ -120,6 +120,7 @@ appfun/                            # modular app logic (sourced by app.R)
   fct_sjr.R                        #   DuckDB query over the SJR data file
   fct_helpers.R                    #   shared helpers (JRI institutes, author position, ...)
   fct_validate.R                   #   startup data-integrity check
+  fct_analytics.R                  #   Analytics-tab summaries (KPIs, charts, CSV)
   mod_system_status.R              #   Shiny module: System Status panel
 manifest.json                      # R version + package set for Posit Connect Cloud
 renv.lock                          # pinned package versions for reproducible local dev
