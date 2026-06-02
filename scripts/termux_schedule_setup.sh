@@ -22,8 +22,19 @@
 
 set -u
 
+# Load optional overrides (JOB_NETWORK, JOB_ID, REPO_DIR) from the same env file
+# used for alerting secrets, so you never have to edit this tracked script --
+# editing tracked files breaks `git pull` on the refresh clone.
+if [ -f "$HOME/.sjr_refresh.env" ]; then
+  set -a; . "$HOME/.sjr_refresh.env"; set +a
+fi
+
 REPO_DIR="${REPO_DIR:-$HOME/Pubmed_app_v2}"
 JOB_ID="${JOB_ID:-1001}"
+# Which connections the job may run on: 'unmetered' = Wi-Fi only (default),
+# 'any' = Wi-Fi or mobile data, 'cellular' = mobile data only. Override by
+# setting JOB_NETWORK in ~/.sjr_refresh.env.
+JOB_NETWORK="${JOB_NETWORK:-unmetered}"
 RUNNER="$REPO_DIR/scripts/termux_run_refresh.sh"
 
 if ! command -v termux-job-scheduler >/dev/null 2>&1; then
@@ -38,9 +49,9 @@ termux-job-scheduler \
   --job-id "$JOB_ID" \
   --period-ms 86400000 \
   --persisted true \
-  --network unmetered \
+  --network "$JOB_NETWORK" \
   --script "$RUNNER"
 
-echo "Registered daily job #$JOB_ID -> $RUNNER"
+echo "Registered daily job #$JOB_ID -> $RUNNER (network: $JOB_NETWORK)"
 echo "It will refresh SJR only on the 1st of each month (see ONLY_ON_DAY)."
-echo "Tip: --network unmetered runs only on Wi-Fi; change to 'any' for mobile data."
+echo "Tip: network '$JOB_NETWORK' -- set JOB_NETWORK=any in ~/.sjr_refresh.env for mobile data."

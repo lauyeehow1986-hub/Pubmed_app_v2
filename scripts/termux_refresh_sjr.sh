@@ -26,6 +26,9 @@
 # =============================================================================
 
 set -u
+# pipefail so `cmd | sed` reflects cmd's exit status, not sed's -- otherwise the
+# push-retry loop below would treat every push as successful.
+set -o pipefail
 
 # ---- CONFIG: point this at your local clone -----------------------------------
 REPO_DIR="${REPO_DIR:-$HOME/Pubmed_app_v2}"
@@ -95,7 +98,16 @@ fi
 
 log "Repo: $REPO_DIR"
 log "Pulling latest..."
-git pull --ff-only 2>&1 | sed 's/^/    /'
+# Explicit fast-forward-only, never rebase (even if the user's git has
+# pull.rebase=true), so a stray local edit can't trigger the "cannot pull with
+# rebase" error. If the working tree has local edits to tracked files, the pull
+# is blocked -- explain how to recover instead of failing cryptically.
+if ! git pull --ff-only --no-rebase 2>&1 | sed 's/^/    /'; then
+  if ! git diff --quiet || ! git diff --cached --quiet; then
+    fail_out "git pull is blocked by local changes on this clone. This clone only generates and pushes data -- it should never have hand edits. Recover with: git -C '$REPO_DIR' stash  (or discard with: git -C '$REPO_DIR' checkout -- .), then re-run. Configure behaviour via ~/.sjr_refresh.env, not by editing tracked files."
+  fi
+  fail_out "git pull failed (network down, or history diverged). Check: git -C '$REPO_DIR' status"
+fi
 
 # Prefer parquet (smaller, typed) when pandas is available; fall back to the
 # dependency-free gzipped CSV. app.R reads whichever one is committed.
