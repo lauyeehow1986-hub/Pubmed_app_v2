@@ -98,6 +98,19 @@ ui <- dashboardPage(
           background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
           border: none;
         }
+        /* Analytics KPI cards */
+        .small-box {
+          border-radius: 12px;
+          box-shadow: 0 3px 8px rgba(0,0,0,0.12);
+          transition: transform .15s ease, box-shadow .15s ease;
+        }
+        .small-box:hover {
+          transform: translateY(-3px);
+          box-shadow: 0 6px 14px rgba(0,0,0,0.18);
+        }
+        .small-box .icon-large { opacity: .25; }
+        .small-box h3 { font-weight: 700; }
+        .box-header .box-title { font-weight: 600; letter-spacing: .2px; }
       "
       ))
     ),
@@ -717,73 +730,99 @@ server <- function(input, output, session) {
     req(rv$collapsed_df)
     rv$collapsed_df
   })
+  # Compute KPIs once per results change and share across the value boxes.
+  analytics_kpis_r <- reactive(analytics_kpis(analytics_data()))
 
-  # Empty-safe base-R barplot helper (no extra package dependency).
-  bar_or_msg <- function(tb, col = "#3c8dbc", horiz = FALSE, las = 1, ...) {
+  # Empty-safe, poster-friendly base-R barplot helper (no extra dependency):
+  # value/percentage labels, light gridlines behind the bars, larger fonts.
+  bar_or_msg <- function(tb, col = "#2c7fb8", horiz = FALSE, pct = FALSE,
+                         cex = 1.15, ...) {
     if (is.null(tb) || !length(tb) || sum(tb) == 0) {
       plot.new()
-      text(0.5, 0.5, "No data yet - run a search.", col = "grey40")
+      text(0.5, 0.5, "No data yet - run a search.", col = "grey45", cex = 1.3)
       return(invisible())
     }
-    op <- par(mar = if (horiz) c(4, 11, 1, 1) else c(5, 4, 1, 1))
+    total <- sum(tb)
+    labs <- if (pct) paste0(tb, "  (", round(100 * tb / total), "%)") else as.character(tb)
+    op <- par(
+      mar = if (horiz) c(4, 12, 1, 3) else c(4, 4.2, 1.2, 1),
+      mgp = c(2.5, 0.6, 0), las = 1
+    )
     on.exit(par(op), add = TRUE)
-    bp <- barplot(tb, col = col, border = NA, horiz = horiz, las = las, ...)
-    if (!horiz) text(bp, tb, labels = tb, pos = 3, xpd = TRUE, cex = 0.9)
+    if (horiz) {
+      bp <- barplot(tb, col = col, border = NA, horiz = TRUE,
+                    cex.names = cex, xaxt = "n", xlim = c(0, max(tb) * 1.18))
+      abline(v = pretty(c(0, max(tb))), col = "grey92", lwd = 1)
+      barplot(tb, col = col, border = NA, horiz = TRUE, add = TRUE,
+              axes = FALSE, axisnames = FALSE)
+      axis(1, col = "grey80", col.axis = "grey40", cex.axis = cex)
+      text(tb, bp, labels = labs, pos = 4, xpd = TRUE, cex = cex, col = "grey25")
+    } else {
+      bp <- barplot(tb, col = col, border = NA, cex.names = cex,
+                    yaxt = "n", ylim = c(0, max(tb) * 1.18))
+      abline(h = pretty(c(0, max(tb))), col = "grey92", lwd = 1)
+      barplot(tb, col = col, border = NA, add = TRUE, axes = FALSE,
+              axisnames = FALSE)
+      axis(2, col = "grey80", col.axis = "grey40", cex.axis = cex)
+      text(bp, tb, labels = labs, pos = 3, xpd = TRUE, cex = cex,
+           col = "grey25", font = 2)
+    }
     invisible(bp)
   }
 
   output$kpi_pubs <- shinydashboard::renderValueBox({
     shinydashboard::valueBox(
-      analytics_kpis(analytics_data())$n_pubs, "Publications",
+      analytics_kpis_r()$n_pubs, "Publications",
       icon = icon("file-lines"), color = "aqua"
     )
   })
   output$kpi_oa <- shinydashboard::renderValueBox({
     shinydashboard::valueBox(
-      paste0(analytics_kpis(analytics_data())$pct_oa, "%"), "Open Access",
+      paste0(analytics_kpis_r()$pct_oa, "%"), "Open Access",
       icon = icon("unlock"), color = "green"
     )
   })
   output$kpi_q1 <- shinydashboard::renderValueBox({
     shinydashboard::valueBox(
-      paste0(analytics_kpis(analytics_data())$pct_q1, "%"), "Q1 journals",
+      paste0(analytics_kpis_r()$pct_q1, "%"), "Q1 journals",
       icon = icon("trophy"), color = "yellow"
     )
   })
   output$kpi_depts <- shinydashboard::renderValueBox({
     shinydashboard::valueBox(
-      analytics_kpis(analytics_data())$n_depts, "Departments",
+      analytics_kpis_r()$n_depts, "Departments",
       icon = icon("sitemap"), color = "purple"
     )
   })
 
   output$plot_year <- renderPlot(
-    bar_or_msg(year_counts(analytics_data()), col = "#3c8dbc")
+    bar_or_msg(year_counts(analytics_data()), col = "#2c7fb8")
   )
   output$plot_quartile <- renderPlot(
     bar_or_msg(
-      quartile_counts(analytics_data()),
-      col = c("#1a9850", "#91cf60", "#fee08b", "#fc8d59", "#bdbdbd")
+      quartile_counts(analytics_data()), pct = TRUE,
+      col = c("#1a9850", "#66bd63", "#fee08b", "#f46d43", "#bdbdbd")
     )
   )
   output$plot_oa <- renderPlot(
-    bar_or_msg(oa_counts(analytics_data()), col = c("#1a9850", "#bdbdbd"))
+    bar_or_msg(oa_counts(analytics_data()), pct = TRUE,
+               col = c("#1a9850", "#9e9e9e"))
   )
   output$plot_dept <- renderPlot(
     bar_or_msg(
       rev(dept_counts(analytics_data(), top = 10)),
-      col = "#dd8f3c", horiz = TRUE
+      col = "#d9822b", horiz = TRUE
     )
   )
   output$plot_affiliation <- renderPlot(
     bar_or_msg(
-      affiliation_counts(analytics_data()),
-      col = c("#605ca8", "#00a65a", "#bdbdbd")
+      affiliation_counts(analytics_data()), pct = TRUE,
+      col = c("#6a51a3", "#41ab5d", "#bdbdbd")
     )
   )
   output$kpi_coauthors <- shinydashboard::renderValueBox({
     shinydashboard::valueBox(
-      analytics_kpis(analytics_data())$avg_authors, "Avg authors / article",
+      analytics_kpis_r()$avg_authors, "Avg authors / article",
       icon = icon("users"), color = "navy"
     )
   })
