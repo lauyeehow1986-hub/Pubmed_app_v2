@@ -326,6 +326,29 @@ manifest's file list/checksums for git deploys (it uses `git archive`). So:
 
   then commit the updated `manifest.json`.
 
+> **Always regenerate with `writeManifest()` on the same R version the manifest targets
+> (currently 4.5.1) — don't hand-edit the package set.** `writeManifest()` records the full,
+> mutually-consistent dependency tree at versions that match your R. Hand-adding packages can pin
+> versions that conflict with that R version (especially the *recommended* packages
+> `MASS / Matrix / lattice / mgcv / nlme`, which are tied to the R release) and break Connect
+> Cloud's package restore.
+
+### Enabling interactive (plotly) Analytics charts
+
+The Analytics charts use base R by default and upgrade to interactive [`plotly`](https://plotly.com/r/)
+charts automatically **if `plotly` is in the deployed package set**. To enable it on Connect Cloud,
+add `plotly` via `writeManifest()` (run locally on R 4.5.1, with all the app's packages — including
+`duckdb` — installed):
+
+```r
+install.packages("plotly")                          # if not already installed
+rsconnect::writeManifest(appDir = ".", appPrimaryDoc = "app.R")
+# commit the regenerated manifest.json, then push
+```
+
+On redeploy, `HAS_PLOTLY` flips true and the charts become interactive (hover tooltips, legend
+toggles). If `plotly` isn't present, the app falls back to the base-R charts with no error.
+
 ## Running the app locally
 
 ```r
