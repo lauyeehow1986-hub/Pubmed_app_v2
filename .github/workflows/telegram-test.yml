@@ -1,0 +1,42 @@
+name: Telegram test
+
+# Manual-only: sends a test message using the TELEGRAM_* repo secrets so you can
+# confirm they're configured correctly (Actions tab -> Telegram test -> Run
+# workflow). Safe to keep around as a diagnostic.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  telegram-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send a Telegram test message
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "::error::TELEGRAM_BOT_TOKEN and/or TELEGRAM_CHAT_ID is not set as a"
+            echo "::error::repository *Secret* (Settings -> Secrets and variables ->"
+            echo "::error::Actions -> Secrets). Note: Variables are not the same thing."
+            exit 1
+          fi
+          # No -f, so we keep the response body even on an API error, to show the
+          # reason (the token never appears in it; the chat id is masked by GitHub).
+          resp=$(curl -sS -m 15 \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=✅ Telegram test from GitHub Actions — your secrets work. ${RUN_URL}" \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage")
+          echo "Telegram API response: $resp"
+          if echo "$resp" | grep -q '"ok":true'; then
+            echo "✅ Sent — check your phone."
+          else
+            echo "::error::Telegram API returned an error (see response above)."
+            echo "::error::Common causes: 'chat not found' = wrong chat id or you"
+            echo "::error::haven't sent your bot /start; 'Unauthorized' = wrong token."
+            exit 1
+          fi
