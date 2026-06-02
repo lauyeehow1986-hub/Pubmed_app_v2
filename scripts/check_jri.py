@@ -48,9 +48,25 @@ PAIR_RE = re.compile(
     r"(" + NAME_WORD + r"(?:[ ]+" + NAME_WORD + r"){1,12})\s*"
     r"\(([A-Z][A-Z0-9][A-Z0-9\-]*)\)"
 )
-INSTITUTE_RE = re.compile(r"Institut|Cent(?:re|er)", re.I)
+INSTITUTE_RE = re.compile(r"Institut", re.I)
+# Reject support units that aren't Joint Research Institutes: the JRIs we track
+# are all "...Institute(s)", but the page also lists centres, coordinating
+# centres and committees.
+EXCLUDE_RE = re.compile(r"Cent(?:re|er)|Committee|Coordinating", re.I)
+# Site navigation / breadcrumb words that bleed into names after tag-stripping.
+NAV_STOP_RE = re.compile(
+    r"\b(?:About|Us|Home|Menu|MAIN|Back|Options|Search|Overview|Ethics|"
+    r"Compliance|All|Contact|Login|Sitemap)\b", re.I)
 TAG_RE = re.compile(r"<[^>]+>")
 WS_RE = re.compile(r"\s+")
+
+
+def clean_name(name):
+    """Strip navigation/breadcrumb bleed by splitting on nav words and keeping
+    the last segment that still names an Institute."""
+    segs = [s.strip(" -&,") for s in NAV_STOP_RE.split(name)]
+    inst = [s for s in segs if INSTITUTE_RE.search(s)]
+    return inst[-1] if inst else name.strip(" -&,")
 
 # If fewer than this many already-known institutes are found on the page, assume
 # the scrape broke rather than that the institutes vanished.
@@ -83,8 +99,10 @@ def extract_pairs(text):
     for name, acr in PAIR_RE.findall(text):
         name = WS_RE.sub(" ", name).strip(" ,.")
         if not INSTITUTE_RE.search(name):
-            continue  # skip parenthesised acronyms that aren't institutes/centres
-        out.setdefault(acr.strip(), name)  # first (usually fullest) name wins
+            continue  # not an Institute name
+        if EXCLUDE_RE.search(name):
+            continue  # a Centre / Committee / Coordinating unit, not a JRI
+        out.setdefault(acr.strip(), clean_name(name))  # first/fullest name wins
     return out
 
 
