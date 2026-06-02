@@ -33,6 +33,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Open PR if new institutes were added
+        id: cpr
         if: success()
         uses: peter-evans/create-pull-request@v7
         with:
@@ -55,6 +56,22 @@ jobs:
           labels: |
             automated
             jri-watch
+
+      - name: Notify Telegram of new institute PR
+        if: steps.cpr.outputs.pull-request-number
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PR_URL: ${{ steps.cpr.outputs.pull-request-url }}
+        run: |
+          if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            curl -fsS -m 15 \
+              --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+              --data-urlencode "text=🆕 JRI watcher: new institute(s) detected on the SingHealth Duke-NUS page. Review the PR: ${PR_URL}" \
+              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" >/dev/null || true
+          else
+            echo "Telegram secrets not set; skipping notification."
+          fi
 
       - name: Notify Telegram on failure
         if: failure()
