@@ -86,10 +86,12 @@ analytics_kpis <- function(df) {
   } else {
     0
   }
+  # Use %in% (not ==) so NA quartiles/OA count as a non-match instead of
+  # propagating NA into the percentage (which showed "NA%" on the Q1 tile).
   list(
     n_pubs      = nrow(df),
-    pct_oa      = round(100 * mean(oa == "Yes")),
-    pct_q1      = round(100 * mean(q == "Q1")),
+    pct_oa      = round(100 * mean(oa %in% "Yes")),
+    pct_q1      = round(100 * mean(q %in% "Q1")),
     n_depts     = length(depts),
     n_authors   = length(authors),
     avg_authors = avg_authors
