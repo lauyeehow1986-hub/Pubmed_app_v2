@@ -16,14 +16,18 @@ jobs:
   parse-and-lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: r-lib/actions/setup-r@v2
         with:
           use-public-rspm: true
 
       - name: Install lintr
-        run: install.packages("lintr")
+        # Pass repos explicitly: plain Rscript doesn't auto-use the runner's
+        # RSPM mirror, so install.packages() would otherwise fail with
+        # "trying to use CRAN without setting a mirror". RSPM gives fast
+        # Linux binaries; fall back to CRAN cloud if RSPM isn't set.
+        run: install.packages("lintr", repos = Sys.getenv("RSPM", unset = "https://cloud.r-project.org"))
         shell: Rscript {0}
 
       - name: Parse smoke test (blocking)
