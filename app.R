@@ -16,6 +16,11 @@ library(DBI)
 HAS_WAITER <- requireNamespace("waiter", quietly = TRUE)
 if (HAS_WAITER) library(waiter)
 
+# Optional interactive charts: use plotly when available, else fall back to
+# base-R plots. (Add plotly to manifest.json to enable it on Connect Cloud.)
+HAS_PLOTLY <- requireNamespace("plotly", quietly = TRUE)
+if (HAS_PLOTLY) library(plotly)
+
 # ============================================================================
 # Modular sources (see appfun/). Field-producing logic is extracted VERBATIM
 # from the original monolithic app; see README "Architecture" for the map.
@@ -36,6 +41,15 @@ if (is.null(.app_dir) || !nzchar(.app_dir)) .app_dir <- getwd()
 
 # Startup integrity check: warn if no data file; stop only if present-but-corrupt.
 assert_sjr_or_warn()
+
+# Analytics chart output: interactive plotly if available, else base-R plot.
+chartOutput <- function(id, height = 300) {
+  if (HAS_PLOTLY) {
+    plotly::plotlyOutput(id, height = height)
+  } else {
+    plotOutput(id, height = height)
+  }
+}
 
 # ============================================================================
 # Shiny UI
@@ -339,36 +353,36 @@ ui <- dashboardPage(
           box(
             title = "Publications by year", status = "primary",
             solidHeader = TRUE, width = 6,
-            plotOutput("plot_year", height = 300)
+            chartOutput("plot_year", height = 300)
           ),
           box(
             title = "Journal quartile (Q1-Q4)", status = "info",
             solidHeader = TRUE, width = 6,
-            plotOutput("plot_quartile", height = 300)
+            chartOutput("plot_quartile", height = 300)
           )
         ),
         fluidRow(
           box(
             title = "Open Access", status = "success",
             solidHeader = TRUE, width = 6,
-            plotOutput("plot_oa", height = 300)
+            chartOutput("plot_oa", height = 300)
           ),
           box(
             title = "Top departments", status = "warning",
             solidHeader = TRUE, width = 6,
-            plotOutput("plot_dept", height = 320)
+            chartOutput("plot_dept", height = 320)
           )
         ),
         fluidRow(
           box(
             title = "Open Access & Q1 trend by year", status = "info",
             solidHeader = TRUE, width = 6,
-            plotOutput("plot_trend", height = 300)
+            chartOutput("plot_trend", height = 300)
           ),
           box(
             title = "NHCS author role", status = "success",
             solidHeader = TRUE, width = 6,
-            plotOutput("plot_role", height = 300)
+            chartOutput("plot_role", height = 300)
           )
         ),
         fluidRow(
@@ -376,7 +390,7 @@ ui <- dashboardPage(
           box(
             title = "Duke-NUS / JRI collaboration (articles)", status = "info",
             solidHeader = TRUE, width = 8,
-            plotOutput("plot_affiliation", height = 280)
+            chartOutput("plot_affiliation", height = 280)
           )
         ),
         fluidRow(
@@ -903,36 +917,45 @@ server <- function(input, output, session) {
     )
   })
 
-  output$plot_year <- renderPlot(
-    bar_or_msg(year_counts(filtered()), col = "#2c7fb8")
-  )
-  output$plot_quartile <- renderPlot(
-    bar_or_msg(
-      quartile_counts(filtered()), pct = TRUE,
-      col = c("#1a9850", "#66bd63", "#fee08b", "#f46d43", "#bdbdbd")
-    )
-  )
-  output$plot_oa <- renderPlot(
-    bar_or_msg(oa_counts(filtered()), pct = TRUE,
-               col = c("#1a9850", "#9e9e9e"))
-  )
-  output$plot_dept <- renderPlot(
-    bar_or_msg(
-      rev(dept_counts(filtered(), top = 10)),
-      col = "#d9822b", horiz = TRUE
-    )
-  )
-  output$plot_affiliation <- renderPlot(
-    bar_or_msg(
-      affiliation_counts(filtered()), pct = TRUE,
-      col = c("#6a51a3", "#41ab5d", "#bdbdbd")
-    )
-  )
-  output$plot_trend <- renderPlot(trend_or_msg(yearly_metrics(filtered())))
-  output$plot_role <- renderPlot(
-    bar_or_msg(author_role_counts(filtered_authors()), pct = TRUE,
-               col = c("#3182bd", "#9ecae1", "#08519c"))
-  )
+  q_cols <- c("#1a9850", "#66bd63", "#fee08b", "#f46d43", "#bdbdbd")
+  role_cols <- c("#3182bd", "#9ecae1", "#08519c")
+  aff_cols <- c("#6a51a3", "#41ab5d", "#bdbdbd")
+
+  output$plot_year <- if (HAS_PLOTLY) {
+    plotly::renderPlotly(plotly_bar(year_counts(filtered()), "#2c7fb8"))
+  } else {
+    renderPlot(bar_or_msg(year_counts(filtered()), col = "#2c7fb8"))
+  }
+  output$plot_quartile <- if (HAS_PLOTLY) {
+    plotly::renderPlotly(plotly_bar(quartile_counts(filtered()), q_cols, pct = TRUE))
+  } else {
+    renderPlot(bar_or_msg(quartile_counts(filtered()), pct = TRUE, col = q_cols))
+  }
+  output$plot_oa <- if (HAS_PLOTLY) {
+    plotly::renderPlotly(plotly_bar(oa_counts(filtered()), c("#1a9850", "#9e9e9e"), pct = TRUE))
+  } else {
+    renderPlot(bar_or_msg(oa_counts(filtered()), pct = TRUE, col = c("#1a9850", "#9e9e9e")))
+  }
+  output$plot_dept <- if (HAS_PLOTLY) {
+    plotly::renderPlotly(plotly_bar(rev(dept_counts(filtered(), top = 10)), "#d9822b", horiz = TRUE))
+  } else {
+    renderPlot(bar_or_msg(rev(dept_counts(filtered(), top = 10)), col = "#d9822b", horiz = TRUE))
+  }
+  output$plot_affiliation <- if (HAS_PLOTLY) {
+    plotly::renderPlotly(plotly_bar(affiliation_counts(filtered()), aff_cols, pct = TRUE))
+  } else {
+    renderPlot(bar_or_msg(affiliation_counts(filtered()), pct = TRUE, col = aff_cols))
+  }
+  output$plot_trend <- if (HAS_PLOTLY) {
+    plotly::renderPlotly(plotly_trend(yearly_metrics(filtered())))
+  } else {
+    renderPlot(trend_or_msg(yearly_metrics(filtered())))
+  }
+  output$plot_role <- if (HAS_PLOTLY) {
+    plotly::renderPlotly(plotly_bar(author_role_counts(filtered_authors()), role_cols, pct = TRUE))
+  } else {
+    renderPlot(bar_or_msg(author_role_counts(filtered_authors()), pct = TRUE, col = role_cols))
+  }
   output$kpi_coauthors <- shinydashboard::renderValueBox({
     shinydashboard::valueBox(
       analytics_kpis_r()$avg_authors, "Avg authors / article",

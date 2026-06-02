@@ -196,3 +196,69 @@ analytics_summary_long <- function(df) {
   }
   out
 }
+
+# ---- Optional interactive (plotly) chart builders ---------------------------
+# Pure table -> plotly object. Only called when the `plotly` package is present
+# (see HAS_PLOTLY in app.R); defining them is harmless when it is not installed.
+
+.plotly_empty <- function() {
+  plotly::layout(
+    plotly::plot_ly(x = numeric(0), y = numeric(0), type = "scatter",
+                    mode = "markers"),
+    annotations = list(text = "No data yet - run a search.",
+                       showarrow = FALSE, font = list(color = "grey45")),
+    xaxis = list(visible = FALSE), yaxis = list(visible = FALSE)
+  )
+}
+
+plotly_bar <- function(tb, color = "#2c7fb8", horiz = FALSE, pct = FALSE) {
+  if (is.null(tb) || !length(tb) || sum(tb) == 0) return(.plotly_empty())
+  cats <- names(tb)
+  vals <- as.integer(tb)
+  total <- sum(vals)
+  hov <- if (pct) {
+    sprintf("%s: %d (%d%%)", cats, vals, round(100 * vals / total))
+  } else {
+    sprintf("%s: %d", cats, vals)
+  }
+  cols <- if (length(color) == 1) rep(color, length(vals)) else
+    rep(color, length.out = length(vals))
+  if (horiz) {
+    p <- plotly::plot_ly(y = cats, x = vals, type = "bar", orientation = "h",
+                         marker = list(color = cols), text = hov,
+                         hoverinfo = "text")
+    p <- plotly::layout(
+      p, margin = list(t = 10),
+      xaxis = list(title = ""),
+      yaxis = list(title = "", categoryorder = "array", categoryarray = cats)
+    )
+  } else {
+    p <- plotly::plot_ly(x = cats, y = vals, type = "bar",
+                         marker = list(color = cols), text = hov,
+                         hoverinfo = "text")
+    p <- plotly::layout(
+      p, margin = list(t = 10),
+      yaxis = list(title = ""),
+      xaxis = list(title = "", categoryorder = "array", categoryarray = cats)
+    )
+  }
+  plotly::config(p, displayModeBar = FALSE)
+}
+
+plotly_trend <- function(ym) {
+  if (is.null(ym) || !nrow(ym)) return(.plotly_empty())
+  p <- plotly::plot_ly()
+  p <- plotly::add_trace(p, x = ym$Year, y = ym[["OA_%"]], name = "Open Access %",
+                         type = "scatter", mode = "lines+markers",
+                         line = list(color = "#1a9850", width = 3),
+                         marker = list(color = "#1a9850"))
+  p <- plotly::add_trace(p, x = ym$Year, y = ym[["Q1_%"]], name = "Q1 %",
+                         type = "scatter", mode = "lines+markers",
+                         line = list(color = "#2c7fb8", width = 3),
+                         marker = list(color = "#2c7fb8"))
+  p <- plotly::layout(p, margin = list(t = 10),
+                      xaxis = list(title = "", dtick = 1),
+                      yaxis = list(title = "%", range = c(0, 100)),
+                      legend = list(orientation = "h"))
+  plotly::config(p, displayModeBar = FALSE)
+}
