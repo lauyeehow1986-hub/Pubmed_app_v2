@@ -96,6 +96,86 @@ analytics_kpis <- function(df) {
   )
 }
 
+# ---- Interactive filtering + deeper-insight summaries -----------------------
+
+# Filter article/author rows by year range, department(s), quartile(s) and OA.
+# Any argument left NULL/empty is not applied. Works on both the article-level
+# (collapsed) and author-level (combined) frames.
+filter_articles <- function(df, years = NULL, depts = NULL,
+                            quartiles = NULL, oa = NULL) {
+  if (is.null(df) || !nrow(df)) return(df)
+  keep <- rep(TRUE, nrow(df))
+  if (!is.null(years) && length(years) == 2 &&
+        "CY_Published_Reported" %in% names(df)) {
+    y <- suppressWarnings(as.integer(df$CY_Published_Reported))
+    keep <- keep & !is.na(y) & y >= years[1] & y <= years[2]
+  }
+  if (!is.null(depts) && length(depts) && "Department" %in% names(df)) {
+    keep <- keep & vapply(df$Department,
+                          function(d) any(split_departments(d) %in% depts),
+                          logical(1))
+  }
+  if (!is.null(quartiles) && length(quartiles) &&
+        "SJR_Best_Quartile" %in% names(df)) {
+    q <- toupper(trimws(as.character(df$SJR_Best_Quartile)))
+    q[!q %in% c("Q1", "Q2", "Q3", "Q4")] <- "Unranked"
+    keep <- keep & q %in% quartiles
+  }
+  if (!is.null(oa) && oa %in% c("Yes", "No") && "Open_Access" %in% names(df)) {
+    v <- ifelse(is.na(df$Open_Access), "No", as.character(df$Open_Access))
+    keep <- keep & v == oa
+  }
+  df[keep, , drop = FALSE]
+}
+
+# Per-year metrics: publication count, Open Access % and Q1 %.
+yearly_metrics <- function(df) {
+  empty <- data.frame(Year = integer(), Publications = integer(),
+                      `OA_%` = integer(), `Q1_%` = integer(),
+                      check.names = FALSE)
+  if (is.null(df) || !nrow(df) || !"CY_Published_Reported" %in% names(df)) {
+    return(empty)
+  }
+  y <- suppressWarnings(as.integer(df$CY_Published_Reported))
+  ok <- !is.na(y)
+  if (!any(ok)) return(empty)
+  y <- y[ok]; df <- df[ok, , drop = FALSE]
+  oa <- ifelse(is.na(df$Open_Access), "No", as.character(df$Open_Access)) == "Yes"
+  q1 <- toupper(trimws(as.character(df$SJR_Best_Quartile))) == "Q1"
+  ag <- aggregate(data.frame(Publications = 1L, OA = oa, Q1 = q1),
+                  by = list(Year = y), FUN = sum)
+  data.frame(
+    Year = ag$Year,
+    Publications = ag$Publications,
+    `OA_%` = round(100 * ag$OA / ag$Publications),
+    `Q1_%` = round(100 * ag$Q1 / ag$Publications),
+    check.names = FALSE
+  )[order(ag$Year), ]
+}
+
+# NHCS author role distribution (First / Middle / Last) from author-level data.
+author_role_counts <- function(df) {
+  if (is.null(df) || !nrow(df) || !"Author_Status" %in% names(df)) {
+    return(integer(0))
+  }
+  s <- trimws(as.character(df$Author_Status))
+  role <- ifelse(s == "First", "First", ifelse(s == "Last", "Last", "Middle"))
+  table(factor(role, levels = c("First", "Middle", "Last")))
+}
+
+# Top-N journals by publication count.
+top_journals_df <- function(df, n = 10) {
+  col <- if ("Abbreviated_Title" %in% names(df)) "Abbreviated_Title" else "Title"
+  if (is.null(df) || !nrow(df) || !col %in% names(df)) {
+    return(data.frame(Journal = character(), Publications = integer()))
+  }
+  j <- .an_nonempty(df[[col]])
+  if (!length(j)) return(data.frame(Journal = character(), Publications = integer()))
+  tb <- utils::head(sort(table(j), decreasing = TRUE), n)
+  data.frame(Journal = names(tb), Publications = as.integer(tb),
+             row.names = NULL)
+}
+
 # Tidy long-format summary (Metric, Category, Count) for CSV export.
 analytics_summary_long <- function(df) {
   mk <- function(metric, tb) {

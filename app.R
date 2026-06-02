@@ -302,6 +302,34 @@ ui <- dashboardPage(
       tabItem(
         tabName = "analytics",
         fluidRow(
+          box(
+            title = "Filters", status = "primary", solidHeader = TRUE,
+            width = 12, collapsible = TRUE,
+            fluidRow(
+              column(3, uiOutput("flt_year")),
+              column(4, uiOutput("flt_dept")),
+              column(
+                3,
+                checkboxGroupInput(
+                  "flt_quartile", "Quartile",
+                  choices = c("Q1", "Q2", "Q3", "Q4", "Unranked"),
+                  selected = c("Q1", "Q2", "Q3", "Q4", "Unranked"),
+                  inline = TRUE
+                )
+              ),
+              column(
+                2,
+                radioButtons(
+                  "flt_oa", "Open Access",
+                  choices = c("All", "Open Access only", "Non-OA"),
+                  selected = "All"
+                )
+              )
+            ),
+            tags$em(textOutput("flt_summary", inline = TRUE))
+          )
+        ),
+        fluidRow(
           valueBoxOutput("kpi_pubs", width = 3),
           valueBoxOutput("kpi_oa", width = 3),
           valueBoxOutput("kpi_q1", width = 3),
@@ -332,11 +360,35 @@ ui <- dashboardPage(
           )
         ),
         fluidRow(
+          box(
+            title = "Open Access & Q1 trend by year", status = "info",
+            solidHeader = TRUE, width = 6,
+            plotOutput("plot_trend", height = 300)
+          ),
+          box(
+            title = "NHCS author role", status = "success",
+            solidHeader = TRUE, width = 6,
+            plotOutput("plot_role", height = 300)
+          )
+        ),
+        fluidRow(
           valueBoxOutput("kpi_coauthors", width = 4),
           box(
             title = "Duke-NUS / JRI collaboration (articles)", status = "info",
             solidHeader = TRUE, width = 8,
             plotOutput("plot_affiliation", height = 280)
+          )
+        ),
+        fluidRow(
+          box(
+            title = "Year-by-year metrics", status = "primary",
+            solidHeader = TRUE, width = 6,
+            DTOutput("tbl_yearly")
+          ),
+          box(
+            title = "Top journals", status = "warning",
+            solidHeader = TRUE, width = 6,
+            DTOutput("tbl_journals")
           )
         ),
         fluidRow(
@@ -730,8 +782,40 @@ server <- function(input, output, session) {
     req(rv$collapsed_df)
     rv$collapsed_df
   })
-  # Compute KPIs once per results change and share across the value boxes.
-  analytics_kpis_r <- reactive(analytics_kpis(analytics_data()))
+
+  # ---- interactive filters (re-slice every KPI/chart live) ------------------
+  output$flt_year <- renderUI({
+    y <- suppressWarnings(as.integer(analytics_data()$CY_Published_Reported))
+    y <- y[!is.na(y)]
+    if (!length(y)) return(NULL)
+    sliderInput("flt_year", "Year range", min = min(y), max = max(y),
+                value = c(min(y), max(y)), step = 1, sep = "")
+  })
+  output$flt_dept <- renderUI({
+    d <- sort(unique(unlist(lapply(analytics_data()$Department, split_departments))))
+    selectizeInput("flt_dept", "Departments", choices = d, multiple = TRUE,
+                   options = list(placeholder = "All departments"))
+  })
+  flt_oa_arg <- reactive({
+    sel <- if (is.null(input$flt_oa)) "All" else input$flt_oa
+    switch(sel, "Open Access only" = "Yes", "Non-OA" = "No", NULL)
+  })
+  filtered <- reactive({
+    filter_articles(analytics_data(), input$flt_year, input$flt_dept,
+                    input$flt_quartile, flt_oa_arg())
+  })
+  filtered_authors <- reactive({
+    req(rv$combined_df)
+    filter_articles(rv$combined_df, input$flt_year, input$flt_dept,
+                    input$flt_quartile, flt_oa_arg())
+  })
+  output$flt_summary <- renderText({
+    sprintf("Showing %d of %d article(s) after filters.",
+            nrow(filtered()), nrow(analytics_data()))
+  })
+
+  # Compute KPIs once per filter change and share across the value boxes.
+  analytics_kpis_r <- reactive(analytics_kpis(filtered()))
 
   # Empty-safe, poster-friendly base-R barplot helper (no extra dependency):
   # value/percentage labels, light gridlines behind the bars, larger fonts.
@@ -770,6 +854,30 @@ server <- function(input, output, session) {
     invisible(bp)
   }
 
+  # Open Access % and Q1 % over time (two lines) from yearly_metrics().
+  trend_or_msg <- function(ym, cex = 1.15) {
+    if (is.null(ym) || !nrow(ym)) {
+      plot.new()
+      text(0.5, 0.5, "No data yet - run a search.", col = "grey45", cex = 1.3)
+      return(invisible())
+    }
+    op <- par(mar = c(4, 4.2, 1.2, 1), mgp = c(2.5, 0.6, 0), las = 1)
+    on.exit(par(op), add = TRUE)
+    yr <- ym$Year
+    plot(yr, ym[["OA_%"]], type = "n", ylim = c(0, 100), xlab = "", ylab = "%",
+         xaxt = "n", yaxt = "n")
+    axis(1, at = yr, labels = yr, cex.axis = cex, col = "grey80", col.axis = "grey40")
+    axis(2, cex.axis = cex, col = "grey80", col.axis = "grey40")
+    abline(h = seq(0, 100, 25), col = "grey92")
+    lines(yr, ym[["OA_%"]], col = "#1a9850", lwd = 3)
+    points(yr, ym[["OA_%"]], col = "#1a9850", pch = 19, cex = 1.2)
+    lines(yr, ym[["Q1_%"]], col = "#2c7fb8", lwd = 3)
+    points(yr, ym[["Q1_%"]], col = "#2c7fb8", pch = 17, cex = 1.2)
+    legend("topleft", c("Open Access %", "Q1 %"), col = c("#1a9850", "#2c7fb8"),
+           lwd = 3, pch = c(19, 17), bty = "n", cex = cex)
+    invisible()
+  }
+
   output$kpi_pubs <- shinydashboard::renderValueBox({
     shinydashboard::valueBox(
       analytics_kpis_r()$n_pubs, "Publications",
@@ -796,29 +904,34 @@ server <- function(input, output, session) {
   })
 
   output$plot_year <- renderPlot(
-    bar_or_msg(year_counts(analytics_data()), col = "#2c7fb8")
+    bar_or_msg(year_counts(filtered()), col = "#2c7fb8")
   )
   output$plot_quartile <- renderPlot(
     bar_or_msg(
-      quartile_counts(analytics_data()), pct = TRUE,
+      quartile_counts(filtered()), pct = TRUE,
       col = c("#1a9850", "#66bd63", "#fee08b", "#f46d43", "#bdbdbd")
     )
   )
   output$plot_oa <- renderPlot(
-    bar_or_msg(oa_counts(analytics_data()), pct = TRUE,
+    bar_or_msg(oa_counts(filtered()), pct = TRUE,
                col = c("#1a9850", "#9e9e9e"))
   )
   output$plot_dept <- renderPlot(
     bar_or_msg(
-      rev(dept_counts(analytics_data(), top = 10)),
+      rev(dept_counts(filtered(), top = 10)),
       col = "#d9822b", horiz = TRUE
     )
   )
   output$plot_affiliation <- renderPlot(
     bar_or_msg(
-      affiliation_counts(analytics_data()), pct = TRUE,
+      affiliation_counts(filtered()), pct = TRUE,
       col = c("#6a51a3", "#41ab5d", "#bdbdbd")
     )
+  )
+  output$plot_trend <- renderPlot(trend_or_msg(yearly_metrics(filtered())))
+  output$plot_role <- renderPlot(
+    bar_or_msg(author_role_counts(filtered_authors()), pct = TRUE,
+               col = c("#3182bd", "#9ecae1", "#08519c"))
   )
   output$kpi_coauthors <- shinydashboard::renderValueBox({
     shinydashboard::valueBox(
@@ -827,10 +940,23 @@ server <- function(input, output, session) {
     )
   })
 
+  output$tbl_yearly <- DT::renderDT(
+    DT::datatable(
+      yearly_metrics(filtered()), rownames = FALSE,
+      options = list(dom = "t", paging = FALSE, ordering = TRUE)
+    )
+  )
+  output$tbl_journals <- DT::renderDT(
+    DT::datatable(
+      top_journals_df(filtered(), 15), rownames = FALSE,
+      options = list(dom = "ftp", pageLength = 10)
+    )
+  )
+
   output$download_summary <- downloadHandler(
     filename = function() paste0("nhcs_pubmed_summary_", Sys.Date(), ".csv"),
     content = function(file) {
-      write.csv(analytics_summary_long(analytics_data()), file, row.names = FALSE)
+      write.csv(analytics_summary_long(filtered()), file, row.names = FALSE)
     }
   )
 
