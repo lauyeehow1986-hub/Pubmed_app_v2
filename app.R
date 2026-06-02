@@ -319,6 +319,14 @@ ui <- dashboardPage(
           )
         ),
         fluidRow(
+          valueBoxOutput("kpi_coauthors", width = 4),
+          box(
+            title = "Duke-NUS / JRI collaboration (articles)", status = "info",
+            solidHeader = TRUE, width = 8,
+            plotOutput("plot_affiliation", height = 280)
+          )
+        ),
+        fluidRow(
           box(
             title = "Summary export", status = "primary",
             solidHeader = TRUE, width = 12,
@@ -767,6 +775,18 @@ server <- function(input, output, session) {
       col = "#dd8f3c", horiz = TRUE
     )
   )
+  output$plot_affiliation <- renderPlot(
+    bar_or_msg(
+      affiliation_counts(analytics_data()),
+      col = c("#605ca8", "#00a65a", "#bdbdbd")
+    )
+  )
+  output$kpi_coauthors <- shinydashboard::renderValueBox({
+    shinydashboard::valueBox(
+      analytics_kpis(analytics_data())$avg_authors, "Avg authors / article",
+      icon = icon("users"), color = "navy"
+    )
+  })
 
   output$download_summary <- downloadHandler(
     filename = function() paste0("nhcs_pubmed_summary_", Sys.Date(), ".csv"),

@@ -42,6 +42,19 @@ quartile_counts <- function(df) {
   table(factor(q, levels = c("Q1", "Q2", "Q3", "Q4", "Unranked")))
 }
 
+# Articles with Duke-NUS- and JRI-affiliated authors (collaboration view).
+affiliation_counts <- function(df) {
+  if (is.null(df) || !nrow(df)) return(integer(0))
+  has <- function(col) {
+    if (!col %in% names(df)) return(rep(FALSE, nrow(df)))
+    v <- trimws(as.character(df[[col]]))
+    !is.na(df[[col]]) & nzchar(v) & toupper(v) != "NA"
+  }
+  dn <- has("Duke_NUS_Affiliation")
+  jri <- has("JRI_Affiliation")
+  c("Duke-NUS" = sum(dn), "JRI" = sum(jri), "Neither" = sum(!dn & !jri))
+}
+
 # Top-N departments by number of publications.
 dept_counts <- function(df, top = 10) {
   if (is.null(df) || !"Department" %in% names(df) || !nrow(df)) return(integer(0))
@@ -64,12 +77,22 @@ analytics_kpis <- function(df) {
   } else {
     character(0)
   }
+  # Mean co-authors per article from the full author list.
+  avg_authors <- if ("Author_List" %in% names(df)) {
+    n <- vapply(df$Author_List, function(s) {
+      length(.an_nonempty(strsplit(as.character(s), "\\s*;\\s*")[[1]]))
+    }, integer(1))
+    if (length(n)) round(mean(n), 1) else 0
+  } else {
+    0
+  }
   list(
-    n_pubs    = nrow(df),
-    pct_oa    = round(100 * mean(oa == "Yes")),
-    pct_q1    = round(100 * mean(q == "Q1")),
-    n_depts   = length(depts),
-    n_authors = length(authors)
+    n_pubs      = nrow(df),
+    pct_oa      = round(100 * mean(oa == "Yes")),
+    pct_q1      = round(100 * mean(q == "Q1")),
+    n_depts     = length(depts),
+    n_authors   = length(authors),
+    avg_authors = avg_authors
   )
 }
 
@@ -84,6 +107,7 @@ analytics_summary_long <- function(df) {
     mk("Publications by year", year_counts(df)),
     mk("Open Access", oa_counts(df)),
     mk("Journal quartile", quartile_counts(df)),
+    mk("Affiliation tagging", affiliation_counts(df)),
     mk("Top departments", dept_counts(df, 15))
   ))
   if (is.null(out)) {
