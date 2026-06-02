@@ -1,0 +1,62 @@
+name: API canary
+
+# Weekly contract check against the live NCBI PubMed and DOAJ APIs, using the
+# app's own appfun/ parsers. If either API changes shape, the job fails and
+# GitHub emails you (and a Telegram message is sent if secrets are configured).
+# Unlike the SJR refresh, these APIs are reachable from CI, so no phone needed.
+on:
+  schedule:
+    - cron: "0 6 * * 1"   # Mondays 06:00 UTC
+  workflow_dispatch:       # allow manual runs from the Actions tab
+
+permissions:
+  contents: read
+
+jobs:
+  api-canary:
+    runs-on: ubuntu-latest
+    env:
+      # NCBI "good citizen" identification (an API key, if set as a secret,
+      # raises the rate limit but is optional).
+      NCBI_TOOL: NHCS_PubMed_Tracker_Canary
+      NCBI_EMAIL: lauyeehow1986@gmail.com
+      NCBI_API_KEY: ${{ secrets.NCBI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - name: Install R packages
+        # Pass repos explicitly so plain Rscript uses the runner's RSPM binary
+        # mirror (fast) rather than failing on an unset CRAN mirror.
+        run: install.packages(c("xml2", "httr", "jsonlite", "lubridate"), repos = Sys.getenv("RSPM", unset = "https://cloud.r-project.org"))
+        shell: Rscript {0}
+
+      - name: Run API contract canary
+        run: Rscript tests/api_canary.R
+
+      - name: Upload DOAJ OpenAPI baseline (if newly created)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: doaj-openapi-baseline
+          path: tests/doaj_openapi.baseline.json
+          if-no-files-found: ignore
+
+      - name: Notify Telegram on failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            curl -fsS -m 15 \
+              --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+              --data-urlencode "text=⚠️ API canary FAILED: NCBI/DOAJ contract may have changed. ${RUN_URL}" \
+              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" >/dev/null || true
+          else
+            echo "Telegram secrets not set; skipping notification."
+          fi

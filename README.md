@@ -304,6 +304,13 @@ otherwise, so it never interferes with Connect Cloud or a plain `runApp()`). Cop
 - **GitHub Actions** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on every push
   and pull request: it installs R, runs the **parse smoke test** as a blocking gate, and runs
   **lintr** as advisory output. Neither step needs DuckDB, so CI stays fast.
+- **API contract canary** ([`.github/workflows/api-canary.yml`](.github/workflows/api-canary.yml))
+  runs weekly (and on demand) against the **live NCBI PubMed and DOAJ APIs** using the app's own
+  `appfun/` parsers (`tests/api_canary.R`). If either API changes shape — e.g. a PubMed XML schema
+  change or a DOAJ field/endpoint change — the job fails and GitHub emails you; set the optional
+  `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` (and `NCBI_API_KEY`) repo **secrets** to also get a
+  Telegram alert. The first run uploads a DOAJ OpenAPI baseline as an artifact; commit it to
+  `tests/doaj_openapi.baseline.json` to enable spec-drift detection.
 - **`tests/parse_check.R`** is a dependency-free smoke test that parses `app.R` and every
   `appfun/` module and fails on any syntax error. Run it locally with `Rscript tests/parse_check.R`.
 - **Claude Code on the web** uses a `SessionStart` hook (`.claude/hooks/session-start.sh`) to
