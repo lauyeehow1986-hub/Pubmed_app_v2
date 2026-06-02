@@ -104,6 +104,14 @@ ever loaded a **single year** (current year − 1). This project instead **owns 
   across all years** (a strict improvement over the old single-year lookup). Every column,
   tab, and feature of the original app is preserved.
 
+> **Reported year = date of publication.** The publication year used everywhere (the
+> `CY_Published_Reported` / `Financial_Year_Reported` fields, the Analytics "by year" charts, and
+> the SJR join) is the journal's **print/issue date** — PubMed's `[dp]` — falling back to the
+> electronic "epub ahead-of-print" date, then the generic PubMed date. So an article put online
+> in one year but printed in the next year's issue is counted in the **issue year**, matching a
+> `[dp]` date-range search. (A side effect: a just-published article may show as **"Unranked"**
+> until that year's SCImago data is available — refresh the SJR file once SCImago publishes it.)
+
 > **Why the data is refreshed from a phone (Termux), not GitHub Actions.**
 > scimagojr.com returns **HTTP 403 to datacenter/CI IPs**, so a GitHub Actions runner cannot
 > download it. A normal mobile/Wi-Fi IP is **not** blocked, so the refresh runs on your phone via
