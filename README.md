@@ -134,9 +134,25 @@ and top-journal tables and a one-click **Summary CSV**.
 
 It's **interactive**: a filter panel (year-range slider, department multi-select, quartile
 checkboxes, Open-Access toggle) re-slices every KPI and chart live. Charts render with base R by
-default; if the optional [`plotly`](https://plotly.com/r/) package is available they upgrade to
-interactive charts (hover tooltips, legend toggles) automatically — `plotly` is included in
-`manifest.json`, and the app falls back to base-R plots if it isn't installed.
+default; if the optional [`plotly`](https://plotly.com/r/) package is in the deployed package set
+they upgrade to interactive charts (hover tooltips, legend toggles) automatically. `plotly` is
+**not** in `manifest.json` by default — see [enabling plotly](#enabling-interactive-plotly-analytics-charts)
+to turn it on; otherwise the app uses the base-R charts with no error.
+
+## Performance & rate limits — please be patient
+
+Every search runs **live** against the NCBI E-utilities (PubMed) and DOAJ APIs, and the app is a
+deliberately polite "good citizen":
+
+- **No NCBI API key by default**, so NCBI caps requests at **~3 / second**. DOAJ Open Access
+  lookups are done **one journal at a time** (synchronous, rate-friendly). A wide date range with
+  many publications therefore takes a while — **let the progress spinner finish; don't refresh or
+  re-submit** (that just restarts the search and adds load).
+- **To speed it up:** set an `NCBI_API_KEY` (free from an NCBI account) to raise the limit to
+  **~10 / second**, and/or set `USE_ASYNC_DOAJ=true` (needs the `future` packages) for parallel
+  DOAJ lookups. Both are environment variables — see [`.Renviron.example`](.Renviron.example).
+  Repeated lookups of the same journal are cached in-session, so re-running a similar search is
+  faster.
 
 ## Repository layout
 
@@ -399,6 +415,14 @@ otherwise, so it never interferes with Connect Cloud or a plain `runApp()`). Cop
   install R + the app's packages and `lintr`, so the same parse/lint checks work in-session.
 - **`.lintr`** disables `object_usage_linter` (single-file linting can't see sibling-module
   functions, so those would be false positives in the modular layout) and widens line length to 120.
+
+> **Why alerts/PRs, not fully automated fixes.** The watchers above *detect* problems and either
+> alert you (email/Telegram) or open a PR for review — they deliberately **do not auto-apply**
+> changes to the live app. A fix that merely makes a check pass (a re-mapped PubMed field, an
+> auto-added "institute") can still silently produce **wrong data**, which in an institutional
+> tracker is worse than a feature that's visibly broken. So a human stays in the loop and merges.
+> You can still accelerate that step — e.g. point an AI coding agent (Claude Code) at the failing
+> PR to *draft* the fix — but the **merge decision remains a human one** by design.
 
 ## Data sources
 
