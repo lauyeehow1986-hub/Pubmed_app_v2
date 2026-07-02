@@ -122,6 +122,29 @@ if (!is.null(xml)) {
   }
 }
 
+# -----------------------------------------------------------------------------
+# Regression: known NHCS articles whose affiliation is written
+# "National Heart Centre, Singapore" (comma/address-separated, not the exact
+# "National Heart Centre Singapore" phrase). Each must still be fetched and
+# tagged as an NHCS author. Guards the broadened search query + is_nhcs_author.
+# -----------------------------------------------------------------------------
+NHCS_REGRESSION_PMIDS <- c("42341796", "42331777", "42097582")
+rx <- tryCatch(fetch_pubmed_records(list(ids = NHCS_REGRESSION_PMIDS), retmax = 10),
+               error = function(e) e)
+if (inherits(rx, "error")) {
+  record("NHCS comma-affiliation regression fetch", FALSE, conditionMessage(rx))
+} else {
+  rrows <- tryCatch(parse_pubmed_xml(rx), error = function(e) e)
+  if (inherits(rrows, "error")) {
+    record("NHCS comma-affiliation regression parse", FALSE, conditionMessage(rrows))
+  } else {
+    got <- unique(vapply(rrows, function(r) as.character(r$PMID), character(1)))
+    for (p in NHCS_REGRESSION_PMIDS) {
+      record(paste("NHCS comma-affiliation captured:", p), p %in% got)
+    }
+  }
+}
+
 # =============================================================================
 # DOAJ (Open Access lookup)
 # =============================================================================

@@ -112,6 +112,13 @@ ever loaded a **single year** (current year − 1). This project instead **owns 
 > `[dp]` date-range search. (A side effect: a just-published article may show as **"Unranked"**
 > until that year's SCImago data is available — refresh the SJR file once SCImago publishes it.)
 
+> **NHCS affiliation matching.** Authors are counted as NHCS when an affiliation contains **both**
+> "National Heart Centre/Center" **and** "Singapore" (the search uses
+> `("national heart centre"[ad] OR "national heart center"[ad]) AND singapore[ad]`). This catches
+> records that write it comma- or address-separated — e.g. `National Heart Centre, Singapore` or
+> `National Heart Centre, 5 Hospital Drive, Singapore` — which the exact `"national heart centre
+> singapore"[ad]` phrase misses, while not matching a National Heart Centre in another country.
+
 > **Why the data is refreshed from a phone (Termux), not GitHub Actions.**
 > scimagojr.com returns **HTTP 403 to datacenter/CI IPs**, so a GitHub Actions runner cannot
 > download it. A normal mobile/Wi-Fi IP is **not** blocked, so the refresh runs on your phone via
