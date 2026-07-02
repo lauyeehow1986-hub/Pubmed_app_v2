@@ -210,6 +210,34 @@ Re-do the token step in Phase 1 and run `git pull` once to re-trigger the prompt
 
 ---
 
+## Optional — signed ("Verified") commits
+
+By default your monthly data-refresh commits are **unsigned**, so GitHub shows them as
+"Unverified". That's cosmetic and doesn't affect anything. If you'd like them to show the green
+**Verified** badge, sign them with an SSH key registered to your GitHub account:
+
+1. **Create a signing key** on the phone (or reuse your existing one):
+   ```bash
+   ssh-keygen -t ed25519 -C "lauyeehow1986@gmail.com" -f ~/.ssh/git_signing -N ""
+   cat ~/.ssh/git_signing.pub   # copy this
+   ```
+2. **Register the public key on GitHub** → Settings → **SSH and GPG keys** → **New SSH key** →
+   set **Key type: `Signing Key`** (not "Authentication") → paste the `.pub` contents → save.
+3. **Enable signing in the repo clone:**
+   ```bash
+   cd ~/Pubmed_app_v2
+   git config gpg.format ssh
+   git config user.signingkey ~/.ssh/git_signing.pub
+   git config commit.gpgsign true
+   git config user.email lauyeehow1986@gmail.com   # must match your GitHub account
+   ```
+
+From then on, `termux_refresh_sjr.sh`'s `git commit` is signed automatically, and each monthly
+data push shows **Verified** on GitHub. (No private key ever leaves the phone; only the `.pub`
+goes to GitHub.)
+
+---
+
 ## What runs, in order
 
 `termux_schedule_setup.sh` registers a daily job → on each fire, `termux_run_refresh.sh` loads
