@@ -261,7 +261,7 @@ ui <- dashboardPage(
 
             downloadButton(
               "download_combined",
-              "Download Results (CSV)",
+              "Download All Fields (CSV)",
               class = "btn-success"
             ),
             br(),
@@ -284,7 +284,7 @@ ui <- dashboardPage(
             ),
             downloadButton(
               "download_collapsed",
-              "Download Collapsed Results (CSV)",
+              "Download All Fields (CSV)",
               class = "btn-success"
             ),
             br(),
@@ -767,10 +767,13 @@ server <- function(input, output, session) {
         dom = 'Bfrtip',
         # 'colvis' adds a "Show/hide columns" dropdown; all columns visible by default.
         buttons = list(
-          # Copy/CSV/Excel export only the currently visible columns (colvis).
-          list(extend = 'copy', exportOptions = list(columns = ':visible')),
-          list(extend = 'csv', exportOptions = list(columns = ':visible')),
-          list(extend = 'excel', exportOptions = list(columns = ':visible')),
+          # Copy/CSV/Excel export only the currently visible (selected) columns.
+          list(extend = 'copy', text = 'Copy (selected fields)',
+               exportOptions = list(columns = ':visible')),
+          list(extend = 'csv', text = 'CSV (selected fields)',
+               exportOptions = list(columns = ':visible')),
+          list(extend = 'excel', text = 'Excel (selected fields)',
+               exportOptions = list(columns = ':visible')),
           list(extend = 'colvis', text = 'Show/hide columns')
         )
       ),
@@ -790,10 +793,13 @@ server <- function(input, output, session) {
         scrollX = TRUE,
         dom = 'Bfrtip',
         buttons = list(
-          # Copy/CSV/Excel export only the currently visible columns (colvis).
-          list(extend = 'copy', exportOptions = list(columns = ':visible')),
-          list(extend = 'csv', exportOptions = list(columns = ':visible')),
-          list(extend = 'excel', exportOptions = list(columns = ':visible')),
+          # Copy/CSV/Excel export only the currently visible (selected) columns.
+          list(extend = 'copy', text = 'Copy (selected fields)',
+               exportOptions = list(columns = ':visible')),
+          list(extend = 'csv', text = 'CSV (selected fields)',
+               exportOptions = list(columns = ':visible')),
+          list(extend = 'excel', text = 'Excel (selected fields)',
+               exportOptions = list(columns = ':visible')),
           list(extend = 'colvis', text = 'Show/hide columns')
         )
       ),
