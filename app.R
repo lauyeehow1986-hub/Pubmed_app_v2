@@ -765,7 +765,11 @@ server <- function(input, output, session) {
         pageLength = 25,
         scrollX = TRUE,
         dom = 'Bfrtip',
-        buttons = c('copy', 'csv', 'excel')
+        # 'colvis' adds a "Show/hide columns" dropdown; all columns visible by default.
+        buttons = list(
+          'copy', 'csv', 'excel',
+          list(extend = 'colvis', text = 'Show/hide columns')
+        )
       ),
       extensions = 'Buttons',
       rownames = FALSE
@@ -782,7 +786,10 @@ server <- function(input, output, session) {
         pageLength = 25,
         scrollX = TRUE,
         dom = 'Bfrtip',
-        buttons = c('copy', 'csv', 'excel')
+        buttons = list(
+          'copy', 'csv', 'excel',
+          list(extend = 'colvis', text = 'Show/hide columns')
+        )
       ),
       extensions = 'Buttons',
       rownames = FALSE
