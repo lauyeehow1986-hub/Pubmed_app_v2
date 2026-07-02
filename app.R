@@ -196,7 +196,7 @@ ui <- dashboardPage(
               h4("Base Query (always included):"),
               div(
                 class = "query-display",
-                '"national heart center *singapore"[ad] OR "national heart centre *singapore"[ad]'
+                '("national heart centre"[ad] OR "national heart center"[ad]) AND singapore[ad]'
               ),
 
               h4("Finalized Query:"),
@@ -592,7 +592,7 @@ server <- function(input, output, session) {
   output$final_query <- renderText({
     req(input$start_date, input$end_date)
 
-    base_query <- '"national heart center singapore"[ad] OR "national heart centre singapore"[ad]'
+    base_query <- '("national heart centre"[ad] OR "national heart center"[ad]) AND singapore[ad]'
 
     # Format dates for PubMed query (YYYY/MM/DD format)
     # Using [dp] (date of publication) to search by publication date
@@ -656,7 +656,7 @@ server <- function(input, output, session) {
         return()
       }
 
-      base_query <- '"national heart center singapore"[ad] OR "national heart centre singapore"[ad]'
+      base_query <- '("national heart centre"[ad] OR "national heart center"[ad]) AND singapore[ad]'
 
       # Format dates for PubMed query
       # Using [dp] (date of publication) to search by publication date

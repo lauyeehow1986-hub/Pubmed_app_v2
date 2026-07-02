@@ -189,7 +189,12 @@ extract_nhcs_department <- function(affiliations) {
   return(NA_character_)
 }
 
-# Function to check if author is from NHCS
+# Function to check if author is from NHCS.
+# Requires BOTH "national heart cent(re/er)" AND "singapore" in the SAME
+# affiliation string. This matches affiliations that separate the two with a
+# comma/address (e.g. "National Heart Centre, Singapore") -- which the exact
+# phrase "national heart centre singapore" misses -- while not tagging a
+# "National Heart Centre" in some other country.
 is_nhcs_author <- function(affiliations) {
   if (
     is.null(affiliations) ||
@@ -199,7 +204,8 @@ is_nhcs_author <- function(affiliations) {
     return(FALSE)
   }
   any(
-    grepl("national heart cent", affiliations, ignore.case = TRUE),
+    grepl("national heart cent", affiliations, ignore.case = TRUE) &
+      grepl("singapore", affiliations, ignore.case = TRUE),
     na.rm = TRUE
   )
 }
