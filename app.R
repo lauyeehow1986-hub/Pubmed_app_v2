@@ -767,7 +767,10 @@ server <- function(input, output, session) {
         dom = 'Bfrtip',
         # 'colvis' adds a "Show/hide columns" dropdown; all columns visible by default.
         buttons = list(
-          'copy', 'csv', 'excel',
+          # Copy/CSV/Excel export only the currently visible columns (colvis).
+          list(extend = 'copy', exportOptions = list(columns = ':visible')),
+          list(extend = 'csv', exportOptions = list(columns = ':visible')),
+          list(extend = 'excel', exportOptions = list(columns = ':visible')),
           list(extend = 'colvis', text = 'Show/hide columns')
         )
       ),
@@ -787,7 +790,10 @@ server <- function(input, output, session) {
         scrollX = TRUE,
         dom = 'Bfrtip',
         buttons = list(
-          'copy', 'csv', 'excel',
+          # Copy/CSV/Excel export only the currently visible columns (colvis).
+          list(extend = 'copy', exportOptions = list(columns = ':visible')),
+          list(extend = 'csv', exportOptions = list(columns = ':visible')),
+          list(extend = 'excel', exportOptions = list(columns = ':visible')),
           list(extend = 'colvis', text = 'Show/hide columns')
         )
       ),
