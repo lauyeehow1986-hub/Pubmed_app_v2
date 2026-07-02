@@ -196,7 +196,7 @@ ui <- dashboardPage(
               h4("Base Query (always included):"),
               div(
                 class = "query-display",
-                '"national heart center singapore"[ad] OR "national heart centre singapore"[ad]'
+                '"national heart center *singapore"[ad] OR "national heart centre *singapore"[ad]'
               ),
 
               h4("Finalized Query:"),
