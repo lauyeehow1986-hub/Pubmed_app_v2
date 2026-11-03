@@ -31,7 +31,7 @@ cd ~
 git clone https://github.com/lauyeehow1986-hub/Pubmed_app_v2.git
 cd Pubmed_app_v2
 git config user.name  "Your Name"
-git config user.email "lauyeehow1986@gmail.com"
+git config user.email "your.email@example.com"
 git config credential.helper store   # caches your token after the first push
 ```
 
@@ -218,7 +218,7 @@ By default your monthly data-refresh commits are **unsigned**, so GitHub shows t
 
 1. **Create a signing key** on the phone (or reuse your existing one):
    ```bash
-   ssh-keygen -t ed25519 -C "lauyeehow1986@gmail.com" -f ~/.ssh/git_signing -N ""
+   ssh-keygen -t ed25519 -C "your.email@example.com" -f ~/.ssh/git_signing -N ""
    cat ~/.ssh/git_signing.pub   # copy this
    ```
 2. **Register the public key on GitHub** → Settings → **SSH and GPG keys** → **New SSH key** →
@@ -229,7 +229,7 @@ By default your monthly data-refresh commits are **unsigned**, so GitHub shows t
    git config gpg.format ssh
    git config user.signingkey ~/.ssh/git_signing.pub
    git config commit.gpgsign true
-   git config user.email lauyeehow1986@gmail.com   # must match your GitHub account
+   git config user.email your.email@example.com   # must match your GitHub account
    ```
 
 From then on, `termux_refresh_sjr.sh`'s `git commit` is signed automatically, and each monthly

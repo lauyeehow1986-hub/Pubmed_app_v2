@@ -231,7 +231,7 @@ git clone https://github.com/lauyeehow1986-hub/Pubmed_app_v2.git
 cd Pubmed_app_v2
 git config credential.helper store      # caches the token after first push
 git config user.name  "Your Name"
-git config user.email "lauyeehow1986@gmail.com"
+git config user.email "your.email@example.com"
 ```
 
 ### Run the refresh

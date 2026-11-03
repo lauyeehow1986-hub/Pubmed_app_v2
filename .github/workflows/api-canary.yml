@@ -19,7 +19,7 @@ jobs:
       # NCBI "good citizen" identification (an API key, if set as a secret,
       # raises the rate limit but is optional).
       NCBI_TOOL: NHCS_PubMed_Tracker_Canary
-      NCBI_EMAIL: lauyeehow1986@gmail.com
+      NCBI_EMAIL: ${{ secrets.NCBI_EMAIL }}
       NCBI_API_KEY: ${{ secrets.NCBI_API_KEY }}
     steps:
       - uses: actions/checkout@v5

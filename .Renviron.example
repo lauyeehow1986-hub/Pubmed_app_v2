@@ -6,7 +6,7 @@
 # and contact email; an API key (optional, free from your NCBI account) raises
 # the rate limit from 3 to 10 requests/second.
 NCBI_TOOL=NHCS_PubMed_Tracker
-NCBI_EMAIL=lauyeehow1986@gmail.com
+NCBI_EMAIL=your.email@example.com
 # NCBI_API_KEY=your_ncbi_api_key_here
 
 # OPTIONAL: turn on parallel DOAJ lookups (needs the `future` + `future.apply`
